@@ -754,14 +754,45 @@ function relay(nextPlayer, cb){
 ============================================================ */
 function loadOnlineGame(){
   // el tablero local = mis fichas reales (ya colocadas) + dorsos anónimos del rival.
-  // las filas del rival se rellenan con piezas "ocultas" (identidad desconocida para mí).
   for(const r of HOME[oppSide()]) for(let c=0;c<COLS;c++){
     if(!isReef(r,c)) board[r][c]={owner:oppSide(),type:'hidden',id:'o'+r+'_'+c};
   }
   turn='A'; selected=null; legal=null; phase='play';
+  net._lastMove=0;
   bindBoard(); show('screen-game'); renderGame();
-  // (entrega 2: aquí se enganchará el watcher de jugadas)
-  $('turn-who').textContent = (turn===mySide()) ? 'Tu turno' : 'Turno del rival';
+  watchOnlineGame();
+}
+function watchOnlineGame(){
+  // turno desde meta
+  netOn('meta','value',snap=>{
+    const m=snap.val(); if(!m)return;
+    if(m.state==='over' && phase!=='over'){ /* fin lo cierra entrega 3 */ }
+    if(m.turn && m.turn!==turn && phase==='play'){ turn=m.turn; selected=null; legal=null; renderGame(); }
+  });
+  // jugadas del rival
+  netOn('moves','child_added',snap=>{
+    const mv=snap.val(); if(!mv)return;
+    if(mv.by===fb.uid) return;                 // mi propia jugada, ya aplicada localmente
+    if(mv.n && mv.n<=net._lastMove) return;
+    net._lastMove=mv.n||net._lastMove;
+    applyRemoteMove(mv);
+  });
+}
+function netSendMove(fr,fc,tr,tc){
+  net._lastMove=(net._lastMove||0)+1;
+  const n=net._lastMove;
+  const mv={by:fb.uid,side:mySide(),fr,fc,tr,tc,n,cap:!!board[tr][tc]};
+  net.ref.child('moves').push(mv).catch(e=>console.error('move push',e));
+  net.ref.child('meta').update({turn: mySide()==='A'?'B':'A'}).catch(()=>{});
+}
+function applyRemoteMove(mv){
+  // mueve la ficha del rival (oculta para mí) de origen a destino, con animación
+  const att=board[mv.fr][mv.fc];
+  if(!att){ // por si acaso desincronización: re-render defensivo
+    renderGame(); return;
+  }
+  // sin captura en entrega 2
+  attemptMove(mv.fr,mv.fc,mv.tr,mv.tc,null);
 }
 function startGame(){ turn='A'; selected=null; legal=null; phase='play'; renderGame(); bindBoard(); show('screen-game'); }
 
@@ -818,6 +849,7 @@ function renderGame(){
     g.appendChild(cell);
   }
   if(mode==='ai'){ $('turn-who').textContent = turn===HUMAN ? 'Tu turno' : 'La IA piensa…'; }
+  else if(mode==='online'){ $('turn-who').textContent = turn===mySide() ? 'Tu turno' : 'Turno del rival'; }
   else $('turn-who').textContent=PNAME[turn]+' · '+PCOLOR[turn];
   $('tally').textContent='A '+countPieces('A')+'  ·  B '+countPieces('B');
   renderGemTray();
@@ -883,12 +915,16 @@ function clearHover(){ $('board').querySelectorAll('.cell.hover').forEach(c=>c.c
 function clearGhosts(){ document.querySelectorAll('.ghost').forEach(g=>g.remove()); }
 function onDown(e){
   if(phase!=='play')return;
+  if(mode==='online' && turn!==mySide())return;   // no es mi turno
   const gemEl=e.target.closest('.gem-mark');
   if(gemEl){ gemStart(e, gemEl.dataset.gem, 'board'); return; }
   const cell=e.target.closest('.cell'); if(!cell)return;
   const r=+cell.dataset.r,c=+cell.dataset.c;
   if(selected && legal && legal.some(m=>m[0]===r&&m[1]===c)){
-    const fr=selected[0],fc=selected[1]; selected=null;legal=null;
+    const fr=selected[0],fc=selected[1];
+    if(mode==='online' && board[r][c]){ /* captura: combate llega en entrega 3 */ selected=null;legal=null;renderGame(); return; }
+    selected=null;legal=null;
+    if(mode==='online'){ netSendMove(fr,fc,r,c); }
     attemptMove(fr,fc,r,c,null); return;
   }
   const p=board[r][c];
@@ -936,7 +972,11 @@ function onUp(e){
   const el=document.elementFromPoint(e.clientX,e.clientY); const cell=el?el.closest('.cell'):null;
   if(cell){ const r=+cell.dataset.r,c=+cell.dataset.c;
     if(legal && legal.some(m=>m[0]===r&&m[1]===c)){
-      const fr=d.fr,fc=d.fc; selected=null;legal=null; attemptMove(fr,fc,r,c,d.ghost); return; }
+      const fr=d.fr,fc=d.fc;
+      if(mode==='online' && board[r][c]){ clearGhosts(); selected=null;legal=null;renderGame(); return; } // captura: entrega 3
+      selected=null;legal=null;
+      if(mode==='online'){ netSendMove(fr,fc,r,c); }
+      attemptMove(fr,fc,r,c,d.ghost); return; }
   }
   clearGhosts(); selected=null;legal=null;renderGame();
 }
@@ -1020,6 +1060,12 @@ function playCombat(att,def,res,cb){
 
 function endTurn(){
   const next = turn==='A'?'B':'A';
+  if(mode==='online'){
+    // la victoria por bloqueo la decide cada cliente sobre su propia info (entrega 3 afinará)
+    turn=next; selected=null; legal=null; renderGame();
+    if(turn!==mySide()){ phase='play'; }  // espero al rival
+    return;
+  }
   if(!hasAnyMove(next)){ return endGame(turn,'bloqueo'); }
   if(mode==='ai'){
     turn=next; selected=null; legal=null; renderGame();
