@@ -764,16 +764,12 @@ function loadOnlineGame(){
   watchPresence();       // vigilo si el rival se cae
 }
 function watchPresence(){
-  const oppU = net.host ? null : null; // resolvemos por meta
-  netOn('meta','value',ms=>{
-    const m=ms.val(); if(!m)return; net._oppUid = net.host ? m.guest : m.host;
-  });
   netOn('presence','value',snap=>{
     const pr=snap.val()||{};
     const opp=net._oppUid;
     if(!opp)return;
     const online = pr[opp]!==false && pr[opp]!==undefined;
-    if(online===false){ onOppGone(); } else { onOppBack(); }
+    if(!online){ onOppGone(); } else { onOppBack(); }
   });
 }
 function onOppGone(){
@@ -803,10 +799,13 @@ function watchOnlineGame(){
   // turno desde meta (FUENTE ÚNICA DE VERDAD)
   netOn('meta','value',snap=>{
     const m=snap.val(); if(!m)return;
+    net._oppUid = net.host ? m.guest : m.host;     // de paso, para presencia
     if(m.winner && phase!=='over'){ return endGame(m.winner,m.reason||'tesoro'); }
-    if(m.turn && m.turn!==turn){
-      turn=m.turn; net._awaiting=false; selected=null; legal=null;
-      if(phase!=='anim'&&phase!=='combat') renderGame();
+    if(m.turn){
+      const changed = m.turn!==turn;
+      turn=m.turn; net._awaiting=false;
+      // si no hay animación en curso, refresco el indicador y el tablero
+      if(changed && phase!=='anim' && phase!=='combat'){ selected=null; legal=null; renderGame(); }
     }
   });
   // todas las jugadas (las mías para animar, las del rival también)
@@ -856,18 +855,34 @@ function runOnlineCombat(cb){
   const defOwner = attOwner==='A'?'B':'A';
   const att={owner:attOwner, type:cb.attType, id:'ca'+cb.n};
   const def={owner:defOwner, type:cb.defType, id:'cd'+cb.n};
-  phase='combat';
-  const src=cellEl(cb.fr,cb.fc); if(src){const pc=src.querySelector('.piece'); if(pc)pc.style.visibility='hidden';}
-  playCombat(att,def,cb.res,()=>{
+
+  // 1) APLICAR EL RESULTADO AL ESTADO YA (no depende de la animación)
+  function applyResult(){
     board[cb.fr][cb.fc]=null;
     if(cb.res==='att') board[cb.tr][cb.tc]=att;
     else if(cb.res==='both') board[cb.tr][cb.tc]=null;
     else board[cb.tr][cb.tc]=def;   // def sobrevive
-    renderGame();
+  }
+
+  // 2) animación visual; pase lo que pase, al final re-sincroniza turno y marcador
+  phase='combat';
+  const src=cellEl(cb.fr,cb.fc); if(src){const pc=src.querySelector('.piece'); if(pc)pc.style.visibility='hidden';}
+  let closed=false;
+  const finish=()=>{
+    if(closed)return; closed=true;
+    applyResult();
     phase='play';
-    if(cb.defType==='tesoro' && net.host){ declareWinner(att.owner,'tesoro'); }
-    else if(cb.defType==='tesoro'){ /* el anfitrión declara; ambos verán por meta */ }
-  });
+    if(cb.defType==='tesoro' && net.host){ declareWinner(att.owner,'tesoro'); return; }
+    net.ref.child('meta').once('value').then(s=>{
+      const m=s.val()||{};
+      if(m.winner){ return endGame(m.winner,m.reason||'tesoro'); }
+      if(m.turn){ turn=m.turn; net._awaiting=false; }
+      selected=null; legal=null; renderGame();
+    }).catch(()=>{ selected=null; legal=null; renderGame(); });
+  };
+  // red de seguridad: si la animación no cierra en 5s, cierro igual
+  const safety=setTimeout(finish, 5000);
+  playCombat(att,def,cb.res,()=>{ clearTimeout(safety); finish(); });
 }
 function declareWinner(winner,reason){
   net.ref.child('meta').update({winner,reason,state:'over'}).catch(()=>{});
