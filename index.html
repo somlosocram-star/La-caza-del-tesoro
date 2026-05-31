@@ -490,8 +490,11 @@ function watchLobby(){
     if(m.state==='setup' && !net.started){ net.started=true; enterOnlineSetup(); return; }
     const both = m.host && m.guest;
     const st=$('lobby-status'), btn=$('btn-lobby-start');
-    if(both){ st.textContent='¡Rival conectado!'; if(net.host){ btn.disabled=false; } else { btn.disabled=true; st.textContent='¡Conectado! Esperando al anfitrión…'; } }
-    else { st.textContent = net.host ? 'Comparte el código. Esperando a que entre alguien…' : 'Entrando…'; btn.disabled=true; }
+    if(both){
+      if(net.host){ st.textContent='¡Rival conectado!'; btn.disabled=false; btn.style.display=''; }
+      else { st.textContent='¡Conectado! Esperando a que el anfitrión empiece…'; btn.style.display='none'; }
+    }
+    else { st.textContent = net.host ? 'Comparte el código. Esperando a que entre alguien…' : 'Entrando…'; btn.disabled=true; if(!net.host)btn.style.display='none'; }
   });
 }
 function onlineBeginSetup(){
@@ -1186,7 +1189,20 @@ $('tut-close').onclick=()=>$('tut').classList.remove('visible');
 </script>
 <script>
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW no registrado:',e)); });
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      reg.update();  // comprueba si hay versión nueva al cargar
+      reg.addEventListener('updatefound',()=>{
+        const nw=reg.installing;
+        nw && nw.addEventListener('statechange',()=>{
+          // hay una versión nueva lista y ya había una controlando: recarga para usarla
+          if(nw.state==='installed' && navigator.serviceWorker.controller){ location.reload(); }
+        });
+      });
+    }).catch(e=>console.warn('SW no registrado:',e));
+    let reloaded=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(reloaded)return; reloaded=true; location.reload(); });
+  });
 }
 </script>
 </body>
