@@ -388,6 +388,7 @@ const TYPES={
   polizon:{rank:1,count:1,short:'POL'},
   kraken:{rank:null,count:4,short:'KRAKEN',bomb:true,immov:true},
   tesoro:{rank:null,count:1,short:'TESORO',flag:true,immov:true},
+  hidden:{rank:null,count:0,short:'?',immov:true},
 };
 const ORDER=['capitan','oficial','artillero','navegante','arponero','grumete','polizon','kraken','tesoro'];
 const PNAME={A:'Jugador A', B:'Jugador B'};
@@ -403,7 +404,7 @@ let gemsOf={A:emptyGems(),B:emptyGems()};
 function curGems(){ return gemsOf[viewSide()]; }
 let pidSeq=0;
 function mkPiece(owner,type){ return {owner,type,id:++pidSeq}; }
-function viewSide(){ return mode==='ai' ? HUMAN : turn; }
+function viewSide(){ return mode==='ai' ? HUMAN : (mode==='online' ? mySide() : turn); }
 
 const $=id=>document.getElementById(id);
 const ownCls=o=>o==='A'?'pA':'pB';
@@ -430,7 +431,9 @@ const firebaseConfig = {
 const GAME_ID='lacaza';
 const CODE_CHARS='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin I/O/0/1 ambiguos
 let fb={ready:false,auth:null,db:null,uid:null};
-let net={code:null,host:false,ref:null,metaCb:null};
+let net={code:null,host:false,ref:null,metaCb:null,side:null,myReady:false,started:false,watchers:[]};
+function mySide(){ return net.side; }                 // 'A' (anfitrión) o 'B' (invitado)
+function oppSide(){ return net.side==='A'?'B':'A'; }
 function onlineMsg(t){ ['online-msg','join-msg'].forEach(id=>{const e=$(id);if(e)e.textContent=t||'';}); }
 function onlineInit(cb){
   if(fb.ready){ cb(); return; }
@@ -455,7 +458,7 @@ function onlineCreate(){
     meta.once('value').then(snap=>{
       if(snap.exists()){ onlineCreate(); return; } // colisión: reintenta
       meta.set({host:fb.uid,guest:null,state:'waiting',createdAt:firebase.database.ServerValue.TIMESTAMP,v:1}).then(()=>{
-        net.code=code; net.host=true; net.ref=roomRef(code);
+        net.code=code; net.host=true; net.side='A'; net.ref=roomRef(code);
         net.ref.onDisconnect().remove();   // si me voy antes de que entre nadie, se borra
         watchLobby(); showLobby();
       }).catch(e=>{ console.error('meta.set',e); onlineMsg('No se pudo crear ('+(e&&e.code||e.message||e)+'). ¿Reglas publicadas?'); });
@@ -473,7 +476,7 @@ function onlineJoin(){
       if(!m){ onlineMsg('No existe ninguna sala con ese código.'); return; }
       if(m.guest && m.guest!==fb.uid){ onlineMsg('Esa sala ya está llena.'); return; }
       meta.update({guest:fb.uid,state:'ready'}).then(()=>{
-        net.code=code; net.host=false; net.ref=roomRef(code);
+        net.code=code; net.host=false; net.side='B'; net.ref=roomRef(code);
         watchLobby(); showLobby();
       }).catch(e=>onlineMsg('No se pudo entrar: '+(e&&e.code||e)));
     }).catch(e=>onlineMsg('Error al buscar: '+(e&&e.code||e)));
@@ -483,22 +486,45 @@ function watchLobby(){
   if(!net.ref)return;
   net.metaCb=net.ref.child('meta').on('value',snap=>{
     const m=snap.val(); if(!m){ return; }
+    // si la partida ya pasó a despliegue, ambos entran
+    if(m.state==='setup' && !net.started){ net.started=true; enterOnlineSetup(); return; }
     const both = m.host && m.guest;
     const st=$('lobby-status'), btn=$('btn-lobby-start');
     if(both){ st.textContent='¡Rival conectado!'; if(net.host){ btn.disabled=false; } else { btn.disabled=true; st.textContent='¡Conectado! Esperando al anfitrión…'; } }
     else { st.textContent = net.host ? 'Comparte el código. Esperando a que entre alguien…' : 'Entrando…'; btn.disabled=true; }
   });
 }
+function onlineBeginSetup(){
+  if(!net.host)return;
+  net.ref.child('meta').update({state:'setup'}).catch(e=>{ $('lobby-status').textContent='No se pudo iniciar: '+(e&&e.code||e); });
+}
+// presencia: marca mi conexión y la borra si me caigo
+function markPresence(){
+  try{
+    const p=net.ref.child('presence/'+fb.uid);
+    p.onDisconnect().set(false); p.set(true);
+  }catch(e){}
+}
+function enterOnlineSetup(){
+  markPresence();
+  mode='online';
+  net.myReady=false;
+  // cada jugador despliega en SUS filas: A arriba (0-2), B abajo (7-9). La perspectiva en setup ya coloca tus filas abajo.
+  startSetup(mySide());
+}
 function showLobby(){ $('lobby-code').textContent=net.code; const b=$('btn-lobby-start'); b.disabled=true; show('screen-lobby'); }
 function leaveRoom(){
   if(net.ref){
     try{ net.ref.child('meta').off('value'); }catch(e){}
+    net.watchers.forEach(w=>{ try{ net.ref.child(w.path).off(w.ev,w.cb); }catch(e){} });
     try{ net.ref.onDisconnect().cancel(); }catch(e){}
+    try{ net.ref.child('presence/'+fb.uid).onDisconnect().cancel(); }catch(e){}
     if(net.host){ net.ref.remove().catch(()=>{}); }              // anfitrión cierra la sala
     else { net.ref.child('meta').update({guest:null,state:'waiting'}).catch(()=>{}); } // invitado se va
   }
-  net={code:null,host:false,ref:null,metaCb:null};
+  net={code:null,host:false,ref:null,metaCb:null,side:null,myReady:false,started:false,watchers:[],_kickoff:false,_loading:false};
 }
+function netOn(path,ev,cb){ const h=net.ref.child(path).on(ev,cb); net.watchers.push({path,ev,cb:h}); return h; }
 
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('visible'));$(id).classList.add('visible');curScreen=id;updateMusic();}
 
@@ -678,8 +704,37 @@ function clearSetup(){
 function setupReady(){
   if(placedCount()!==24)return;
   if(mode==='ai'){ aiSetup(aiLevel); startGame(); return; }
+  if(mode==='online'){ onlineSubmitSetup(); return; }
   if(setupPlayer==='A'){ relay('B', ()=>startSetup('B')); }
   else { relay('A', startGame); }
+}
+function onlineSubmitSetup(){
+  // serializa MIS fichas (solo mis filas) en setups/{uid} — privado por reglas
+  const mine={};
+  for(const r of HOME[mySide()]) for(let c=0;c<COLS;c++){ const p=board[r][c]; if(p) mine[r+'_'+c]={t:p.type}; }
+  $('btn-ready').disabled=true; $('btn-ready').textContent='Esperando al rival…';
+  net.ref.child('setups/'+fb.uid).set(mine).then(()=>{
+    return net.ref.child('ready/'+fb.uid).set(true);
+  }).then(()=>{
+    net.myReady=true; watchBothReady();
+  }).catch(e=>{ $('btn-ready').disabled=false; $('btn-ready').textContent='Listo (24/24)'; alert('No se pudo enviar tu flota: '+(e&&e.code||e)); });
+}
+function watchBothReady(){
+  // el anfitrión arranca la partida cuando ambos ready=true (una sola vez)
+  netOn('ready','value',snap=>{
+    if(net._kickoff||!net.host) return;
+    const r=snap.val()||{};
+    net.ref.child('meta').once('value').then(s=>{
+      const m=s.val()||{};
+      if(net._kickoff) return;
+      if(m.host&&m.guest&&r[m.host]&&r[m.guest]){ net._kickoff=true; net.ref.child('meta').update({state:'playing',turn:'A'}); }
+    });
+  });
+  // ambos esperan a que meta.state pase a 'playing' y cargan el tablero (una sola vez)
+  netOn('meta','value',snap=>{
+    const m=snap.val(); if(!m)return;
+    if(m.state==='playing' && !net._loading){ net._loading=true; loadOnlineGame(); }
+  });
 }
 
 /* ============================================================
@@ -694,6 +749,17 @@ function relay(nextPlayer, cb){
 /* ============================================================
    GAME
 ============================================================ */
+function loadOnlineGame(){
+  // el tablero local = mis fichas reales (ya colocadas) + dorsos anónimos del rival.
+  // las filas del rival se rellenan con piezas "ocultas" (identidad desconocida para mí).
+  for(const r of HOME[oppSide()]) for(let c=0;c<COLS;c++){
+    if(!isReef(r,c)) board[r][c]={owner:oppSide(),type:'hidden',id:'o'+r+'_'+c};
+  }
+  turn='A'; selected=null; legal=null; phase='play';
+  bindBoard(); show('screen-game'); renderGame();
+  // (entrega 2: aquí se enganchará el watcher de jugadas)
+  $('turn-who').textContent = (turn===mySide()) ? 'Tu turno' : 'Turno del rival';
+}
 function startGame(){ turn='A'; selected=null; legal=null; phase='play'; renderGame(); bindBoard(); show('screen-game'); }
 
 function legalMoves(r,c){
@@ -1095,7 +1161,7 @@ $('btn-join-continue').onclick=onlineJoin;
 $('btn-online-back').onclick=()=>{ show('screen-intro'); };
 $('btn-join-back').onclick=()=>{ show('screen-online'); };
 $('btn-lobby-leave').onclick=()=>{ leaveRoom(); show('screen-online'); };
-$('btn-lobby-start').onclick=()=>{ $('lobby-status').textContent='Conexión lista. El despliegue y los turnos online se montan en el siguiente paso.'; };
+$('btn-lobby-start').onclick=()=>{ onlineBeginSetup(); };
 $('btn-diff-back').onclick=()=>{ show('screen-intro'); };
 document.querySelectorAll('#screen-diff [data-lvl]').forEach(b=>{
   b.onclick=()=>{ mode='ai'; aiLevel=+b.dataset.lvl; reset(); startSetup('A'); };
