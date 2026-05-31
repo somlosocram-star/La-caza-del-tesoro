@@ -799,26 +799,29 @@ function watchOnlineGame(){
   // turno desde meta (FUENTE ÚNICA DE VERDAD)
   netOn('meta','value',snap=>{
     const m=snap.val(); if(!m)return;
-    net._oppUid = net.host ? m.guest : m.host;     // de paso, para presencia
+    net._oppUid = net.host ? m.guest : m.host;
     if(m.winner && phase!=='over'){ return endGame(m.winner,m.reason||'tesoro'); }
     if(m.turn){
       const changed = m.turn!==turn;
-      turn=m.turn; net._awaiting=false;
-      // si no hay animación en curso, refresco el indicador y el tablero
+      turn=m.turn;
+      // si es mi turno, NUNCA debo quedar bloqueado esperando
+      if(turn===mySide()) net._awaiting=false;
       if(changed && phase!=='anim' && phase!=='combat'){ selected=null; legal=null; renderGame(); }
+      dbg('meta.turn='+m.turn+(m.winner?' winner='+m.winner:''));
     }
   });
   // todas las jugadas (las mías para animar, las del rival también)
   netOn('moves','child_added',snap=>{
     const mv=snap.val(); if(!mv||!mv.n)return;
     if(net._seen[mv.n])return; net._seen[mv.n]=true;
+    dbg('RECIBO move n='+mv.n+' side='+mv.side+(mv.cap?' ATAQUE':' mov'));
     if(mv.cap){
       // el DEFENSOR (dueño de la ficha atacada) resuelve y publica el combate
       const def=board[mv.tr][mv.tc];
       if(def && def.owner===mySide()){
         const att={owner:oppSide(),type:mv.attType};
         const res=resolve(att,def);
-        net.ref.child('combat/'+mv.n).set({fr:mv.fr,fc:mv.fc,tr:mv.tr,tc:mv.tc,attType:mv.attType,defType:def.type,res,n:mv.n}).catch(e=>console.error('combat',e));
+        net.ref.child('combat/'+mv.n).set({fr:mv.fr,fc:mv.fc,tr:mv.tr,tc:mv.tc,attType:mv.attType,defType:def.type,attSide:mv.side,res,n:mv.n}).catch(e=>console.error('combat',e));
       }
       // ambos esperan al nodo combat para animar (watcher de abajo)
     } else {
@@ -831,6 +834,7 @@ function watchOnlineGame(){
   // combates publicados: ambos animan igual
   netOn('combat','child_added',snap=>{
     const cb=snap.val(); if(!cb||!cb.n)return;
+    dbg('RECIBO combat n='+cb.n+' '+cb.attType+' vs '+cb.defType+' res='+cb.res);
     runOnlineCombat(cb);
   });
 }
@@ -844,14 +848,14 @@ function netSendMove(fr,fc,tr,tc){
   net._awaiting=true;
   net.ref.child('moves').push(mv).catch(e=>console.error('move push',e));
   net.ref.child('meta').update({turn: oppSide()}).catch(e=>console.error('turn',e));
+  dbg('ENVÍO '+(cap?'ataque':'mov')+' '+fr+','+fc+'->'+tr+','+tc);
   // el atacante NO resuelve: espera el nodo combat (lo escribe el defensor)
 }
 function runOnlineCombat(cb){
   if(net._combatDone&&net._combatDone[cb.n])return;
   net._combatDone=net._combatDone||{}; net._combatDone[cb.n]=true;
-  // dueños: el atacante es quien movió desde (fr,fc)
-  const fromMine = (board[cb.fr][cb.fc] && board[cb.fr][cb.fc].owner===mySide());
-  const attOwner = fromMine ? mySide() : oppSide();
+  // dueños DETERMINISTAS: el lado del atacante viene en el propio combate
+  const attOwner = cb.attSide || (board[cb.fr][cb.fc] && board[cb.fr][cb.fc].owner) || 'A';
   const defOwner = attOwner==='A'?'B':'A';
   const att={owner:attOwner, type:cb.attType, id:'ca'+cb.n};
   const def={owner:defOwner, type:cb.defType, id:'cd'+cb.n};
@@ -878,11 +882,23 @@ function runOnlineCombat(cb){
       if(m.winner){ return endGame(m.winner,m.reason||'tesoro'); }
       if(m.turn){ turn=m.turn; net._awaiting=false; }
       selected=null; legal=null; renderGame();
+      dbg('FIN combate -> turn='+turn);
     }).catch(()=>{ selected=null; legal=null; renderGame(); });
   };
   // red de seguridad: si la animación no cierra en 5s, cierro igual
   const safety=setTimeout(finish, 5000);
   playCombat(att,def,cb.res,()=>{ clearTimeout(safety); finish(); });
+}
+function dbg(msg){
+  if(mode!=='online')return;
+  let el=$('dbg-panel');
+  if(!el){
+    el=document.createElement('div'); el.id='dbg-panel';
+    el.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:700;background:rgba(0,0,0,.85);color:#6f6;font-family:monospace;font-size:9px;line-height:1.3;padding:3px 6px;max-height:28vh;overflow:auto;white-space:pre-wrap;';
+    document.body.appendChild(el);
+  }
+  const line='['+mySide()+'] turn='+turn+' await='+(net._awaiting?1:0)+' ph='+phase+(msg?'  '+msg:'');
+  el.textContent=(line+'\n'+el.textContent).split('\n').slice(0,40).join('\n');
 }
 function declareWinner(winner,reason){
   net.ref.child('meta').update({winner,reason,state:'over'}).catch(()=>{});
