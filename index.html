@@ -57,7 +57,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   width:28px;height:28px;border-radius:50%;border:none;cursor:pointer;background:var(--accent);
   color:var(--on-accent);font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:700;
   font-size:1rem;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.3);}
-#sound-toggle{position:fixed;top:max(.8rem,env(safe-area-inset-top));right:3.9rem;z-index:500;
+#sound-toggle{position:fixed;top:max(.8rem,env(safe-area-inset-top));right:4.6rem;z-index:500;
   width:28px;height:28px;border-radius:50%;border:1px solid var(--line);cursor:pointer;background:var(--panel);
   color:var(--text);display:flex;align-items:center;justify-content:center;padding:0;}
 #sound-toggle svg{width:15px;height:15px;}
@@ -90,6 +90,10 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   font-size:1.4rem;letter-spacing:.3em;text-align:center;text-transform:uppercase;padding:.7rem 1rem;width:230px;outline:none;}
 #join-code:focus{border-color:var(--accent);}
 #join-code::placeholder{color:var(--muted);letter-spacing:.2em;}
+.btn-row{display:flex;flex-direction:column;gap:.7rem;align-items:center;}
+.field{display:flex;flex-direction:column;align-items:center;gap:.5rem;margin-bottom:1.2rem;}
+.field label{font-family:'IBM Plex Mono',monospace;font-size:.6rem;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);}
+.code-help{font-family:'IBM Plex Mono',monospace;font-size:.6rem;letter-spacing:.12em;color:var(--muted);text-transform:lowercase;margin-top:.4rem;}
 .note{font-family:'IBM Plex Mono',monospace;font-size:.62rem;letter-spacing:.04em;color:var(--muted);max-width:420px;line-height:1.7;}
 
 /* relay (blackout) */
@@ -100,12 +104,14 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
 
 /* game */
 #screen-game{padding:0;justify-content:flex-start;}
-.ghead{flex:0 0 auto;width:100%;padding:max(.6rem,env(safe-area-inset-top)) 1rem .2rem;}
+.ghead{flex:0 0 auto;width:100%;padding:max(.5rem,env(safe-area-inset-top)) 1rem .1rem;}
 .turn-line{font-family:'IBM Plex Mono',monospace;font-size:.62rem;letter-spacing:.26em;
   text-transform:uppercase;color:var(--muted);text-align:center;margin-top:.4rem;}
 .turn-line b{color:var(--text);}
-.gwrap{flex:1 1 auto;display:flex;align-items:center;justify-content:center;width:100%;padding:.4rem;}
-#board,#board-setup{display:grid;gap:2px;width:min(94vw,440px);background:var(--line);border:1px solid var(--accent);}
+.gwrap{flex:1 1 auto;display:flex;align-items:center;justify-content:center;width:100%;padding:.2rem;min-height:0;}
+#board,#board-setup{display:grid;gap:2px;background:var(--line);border:1px solid var(--accent);}
+#board{width:min(99vw, calc((100dvh - 200px) * 0.8), 560px);}
+#board-setup{width:min(99vw, calc((100dvh - 260px) * 0.8), 520px);}
 .cell{aspect-ratio:1/1;background:var(--water);position:relative;display:flex;align-items:center;
   justify-content:center;cursor:default;overflow:hidden;}
 .cell.reef{background:var(--reef);background-image:repeating-linear-gradient(45deg,transparent,transparent 4px,var(--water-line) 4px,var(--water-line) 5px);cursor:not-allowed;}
@@ -201,7 +207,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
 @keyframes cbWin{0%{transform:scale(1);}45%{transform:scale(1.18);}100%{transform:scale(1);}}
 /* gemas: ayuda de memoria del jugador (único color del juego) */
 .board-col{display:flex;flex-direction:column;align-items:center;}
-#gem-tray{display:flex;gap:1rem;justify-content:center;align-items:center;padding:.5rem 0 .1rem;min-height:40px;touch-action:none;width:100%;}
+#gem-tray{display:flex;gap:1rem;justify-content:center;align-items:center;padding:.3rem 0 .1rem;min-height:34px;touch-action:none;width:100%;}
 .gem{width:32px;height:32px;flex-shrink:0;cursor:grab;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));}
 .gem svg{width:100%;height:100%;display:block;pointer-events:none;}
 .gem-yellow{color:#ffce3a;} .gem-red{color:#e64a3d;} .gem-green{color:#3fb45f;} .gem-blue{color:#3f93e6;}
@@ -263,12 +269,25 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
 <div class="screen" id="screen-online">
   <div class="seal"><i class="ic ic-anchor"></i></div>
   <div class="subtitle" style="margin-bottom:1.4rem">jugar online</div>
-  <button class="btn" id="btn-create">Crear sala</button>
-  <div class="note" style="margin:1.3rem 0 .5rem">o entra con un código</div>
-  <input id="join-code" inputmode="latin" autocomplete="off" autocapitalize="characters" maxlength="6" placeholder="CÓDIGO">
-  <button class="btn" id="btn-join" style="margin-top:.6rem">Entrar</button>
+  <div class="btn-row">
+    <button class="btn" id="btn-create">Crear sala</button>
+    <button class="btn" id="btn-join">Unirse a sala</button>
+  </div>
   <p class="note" id="online-msg" style="margin-top:1rem;min-height:1.2em;color:var(--text)"></p>
   <button class="btn btn-sm" id="btn-online-back" style="margin-top:.4rem">Volver</button>
+</div>
+
+<!-- UNIRSE: código -->
+<div class="screen" id="screen-join">
+  <div class="seal"><i class="ic ic-anchor"></i></div>
+  <div class="subtitle" style="margin-bottom:1.2rem">unirse</div>
+  <div class="field">
+    <label>Código de sala</label>
+    <input id="join-code" class="code" inputmode="latin" autocomplete="off" autocapitalize="characters" maxlength="4" placeholder="ABCD">
+  </div>
+  <button class="btn" id="btn-join-continue">Entrar →</button>
+  <p class="note" id="join-msg" style="margin-top:1rem;min-height:1.2em;color:var(--text)"></p>
+  <button class="btn btn-sm" id="btn-join-back" style="margin-top:.4rem">← volver</button>
 </div>
 
 <!-- SALA (lobby) -->
@@ -276,9 +295,10 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   <div class="seal"><i class="ic ic-anchor"></i></div>
   <div class="subtitle">sala</div>
   <div class="title" id="lobby-code" style="font-size:clamp(2.6rem,12vw,4rem);letter-spacing:.18em">····</div>
-  <p class="note" id="lobby-status" style="margin-top:1rem;min-height:1.4em">Esperando…</p>
+  <div class="code-help">comparte este código con el otro jugador</div>
+  <p class="note" id="lobby-status" style="margin-top:.8rem;min-height:1.4em">Esperando…</p>
   <button class="btn" id="btn-lobby-start" disabled style="margin-top:.6rem">Comenzar</button>
-  <button class="btn btn-sm" id="btn-lobby-leave" style="margin-top:.9rem">Salir</button>
+  <button class="btn btn-sm" id="btn-lobby-leave" style="margin-top:.9rem">← salir de la sala</button>
 </div>
 
 <!-- SETUP -->
@@ -406,7 +426,7 @@ const GAME_ID='lacaza';
 const CODE_CHARS='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin I/O/0/1 ambiguos
 let fb={ready:false,auth:null,db:null,uid:null};
 let net={code:null,host:false,ref:null,metaCb:null};
-function onlineMsg(t){ const e=$('online-msg'); if(e)e.textContent=t||''; }
+function onlineMsg(t){ ['online-msg','join-msg'].forEach(id=>{const e=$(id);if(e)e.textContent=t||'';}); }
 function onlineInit(cb){
   if(fb.ready){ cb(); return; }
   if(location.protocol!=='http:' && location.protocol!=='https:'){
@@ -1063,10 +1083,12 @@ function aiTurn(){
 function reset(){ board=null; turn=null; selected=null; legal=null; aiKnown={}; aiMoved={}; aiLast=null; noCap=0; pidSeq=0; gemsOf={A:emptyGems(),B:emptyGems()}; }
 $('btn-local').onclick=()=>{ mode='local'; reset(); startSetup('A'); };
 $('btn-ai').onclick=()=>{ show('screen-diff'); };
-$('btn-online').onclick=()=>{ onlineMsg(''); $('join-code').value=''; show('screen-online'); };
+$('btn-online').onclick=()=>{ onlineMsg(''); show('screen-online'); };
 $('btn-create').onclick=onlineCreate;
-$('btn-join').onclick=onlineJoin;
+$('btn-join').onclick=()=>{ if($('join-msg'))$('join-msg').textContent=''; $('join-code').value=''; show('screen-join'); };
+$('btn-join-continue').onclick=onlineJoin;
 $('btn-online-back').onclick=()=>{ show('screen-intro'); };
+$('btn-join-back').onclick=()=>{ show('screen-online'); };
 $('btn-lobby-leave').onclick=()=>{ leaveRoom(); show('screen-online'); };
 $('btn-lobby-start').onclick=()=>{ $('lobby-status').textContent='Conexión lista. El despliegue y los turnos online se montan en el siguiente paso.'; };
 $('btn-diff-back').onclick=()=>{ show('screen-intro'); };
