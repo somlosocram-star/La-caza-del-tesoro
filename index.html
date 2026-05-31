@@ -753,16 +753,53 @@ function relay(nextPlayer, cb){
    GAME
 ============================================================ */
 function loadOnlineGame(){
-  // el tablero local = mis fichas reales (ya colocadas) + dorsos anónimos del rival.
   for(const r of HOME[oppSide()]) for(let c=0;c<COLS;c++){
     if(!isReef(r,c)) board[r][c]={owner:oppSide(),type:'hidden',id:'o'+r+'_'+c};
   }
   turn='A'; selected=null; legal=null; phase='play';
   net._lastMove=0;
   bindBoard(); show('screen-game'); renderGame();
+  markPresence();        // mantengo mi presencia viva
   watchOnlineGame();
+  watchPresence();       // vigilo si el rival se cae
+}
+function watchPresence(){
+  const oppU = net.host ? null : null; // resolvemos por meta
+  netOn('meta','value',ms=>{
+    const m=ms.val(); if(!m)return; net._oppUid = net.host ? m.guest : m.host;
+  });
+  netOn('presence','value',snap=>{
+    const pr=snap.val()||{};
+    const opp=net._oppUid;
+    if(!opp)return;
+    const online = pr[opp]!==false && pr[opp]!==undefined;
+    if(online===false){ onOppGone(); } else { onOppBack(); }
+  });
+}
+function onOppGone(){
+  if(phase==='over')return;
+  if(net._discTimer)return;
+  showDisc(true);
+  net._discTimer=setTimeout(()=>{ if($('disc-claim'))$('disc-claim').style.display=''; }, 60000);
+}
+function onOppBack(){
+  if(net._discTimer){ clearTimeout(net._discTimer); net._discTimer=null; }
+  showDisc(false);
+}
+function showDisc(on){
+  let el=$('disc-banner');
+  if(!el){
+    el=document.createElement('div'); el.id='disc-banner';
+    el.style.cssText='position:fixed;left:0;right:0;top:0;z-index:600;background:#1a1a1e;color:var(--text);font-family:IBM Plex Mono,monospace;font-size:.7rem;letter-spacing:.1em;text-align:center;padding:.6rem;border-bottom:1px solid var(--line);';
+    el.innerHTML='Rival desconectado, esperando… <button id="disc-claim" style="display:none;margin-left:.6rem;background:none;border:1px solid var(--accent);color:var(--text);padding:.2rem .6rem;font-family:inherit;">Reclamar victoria</button>';
+    document.body.appendChild(el);
+    el.querySelector('#disc-claim').onclick=()=>{ declareWinner(mySide(),'abandono'); };
+  }
+  el.style.display = on ? '' : 'none';
+  if(!on && $('disc-claim'))$('disc-claim').style.display='none';
 }
 function watchOnlineGame(){
+  net._seen=net._seen||{};
   // turno desde meta (FUENTE ÚNICA DE VERDAD)
   netOn('meta','value',snap=>{
     const m=snap.val(); if(!m)return;
@@ -772,31 +809,68 @@ function watchOnlineGame(){
       if(phase!=='anim'&&phase!=='combat') renderGame();
     }
   });
-  // jugadas del rival
+  // todas las jugadas (las mías para animar, las del rival también)
   netOn('moves','child_added',snap=>{
-    const mv=snap.val(); if(!mv)return;
-    if(mv.by===fb.uid) return;                 // mi propia jugada, ya aplicada localmente
-    if(mv.n && mv.n<=net._lastMove) return;
-    net._lastMove=mv.n||net._lastMove;
-    applyRemoteMove(mv);
+    const mv=snap.val(); if(!mv||!mv.n)return;
+    if(net._seen[mv.n])return; net._seen[mv.n]=true;
+    if(mv.cap){
+      // el DEFENSOR (dueño de la ficha atacada) resuelve y publica el combate
+      const def=board[mv.tr][mv.tc];
+      if(def && def.owner===mySide()){
+        const att={owner:oppSide(),type:mv.attType};
+        const res=resolve(att,def);
+        net.ref.child('combat/'+mv.n).set({fr:mv.fr,fc:mv.fc,tr:mv.tr,tc:mv.tc,attType:mv.attType,defType:def.type,res,n:mv.n}).catch(e=>console.error('combat',e));
+      }
+      // ambos esperan al nodo combat para animar (watcher de abajo)
+    } else {
+      // movimiento simple: animar el deslizamiento (atacante y rival ven lo mismo)
+      const att=board[mv.fr][mv.fc];
+      if(att){ attemptMoveAnim(mv.fr,mv.fc,mv.tr,mv.tc,null,()=>{ board[mv.tr][mv.tc]=att; board[mv.fr][mv.fc]=null; renderGame(); }); }
+      else renderGame();
+    }
+  });
+  // combates publicados: ambos animan igual
+  netOn('combat','child_added',snap=>{
+    const cb=snap.val(); if(!cb||!cb.n)return;
+    runOnlineCombat(cb);
   });
 }
 function netSendMove(fr,fc,tr,tc){
   net._lastMove=(net._lastMove||0)+1;
   const n=net._lastMove;
-  const mv={by:fb.uid,side:mySide(),fr,fc,tr,tc,n,cap:!!board[tr][tc]};
-  net._awaiting=true;                       // bloqueo local hasta que meta confirme el cambio de turno
+  const cap=!!board[tr][tc];
+  const att=board[fr][fc];
+  const mv={by:fb.uid,side:mySide(),fr,fc,tr,tc,n,cap};
+  if(cap) mv.attType=att.type;              // al chocar, el atacante revela su identidad
+  net._awaiting=true;
   net.ref.child('moves').push(mv).catch(e=>console.error('move push',e));
   net.ref.child('meta').update({turn: oppSide()}).catch(e=>console.error('turn',e));
+  // el atacante NO resuelve: espera el nodo combat (lo escribe el defensor)
 }
-function applyRemoteMove(mv){
-  // mueve la ficha del rival (oculta para mí) de origen a destino, con animación
-  const att=board[mv.fr][mv.fc];
-  if(!att){ // por si acaso desincronización: re-render defensivo
-    renderGame(); return;
-  }
-  // sin captura en entrega 2
-  attemptMove(mv.fr,mv.fc,mv.tr,mv.tc,null);
+function runOnlineCombat(cb){
+  if(net._combatDone&&net._combatDone[cb.n])return;
+  net._combatDone=net._combatDone||{}; net._combatDone[cb.n]=true;
+  // dueños: el atacante es quien movió desde (fr,fc)
+  const fromMine = (board[cb.fr][cb.fc] && board[cb.fr][cb.fc].owner===mySide());
+  const attOwner = fromMine ? mySide() : oppSide();
+  const defOwner = attOwner==='A'?'B':'A';
+  const att={owner:attOwner, type:cb.attType, id:'ca'+cb.n};
+  const def={owner:defOwner, type:cb.defType, id:'cd'+cb.n};
+  phase='combat';
+  const src=cellEl(cb.fr,cb.fc); if(src){const pc=src.querySelector('.piece'); if(pc)pc.style.visibility='hidden';}
+  playCombat(att,def,cb.res,()=>{
+    board[cb.fr][cb.fc]=null;
+    if(cb.res==='att') board[cb.tr][cb.tc]=att;
+    else if(cb.res==='both') board[cb.tr][cb.tc]=null;
+    else board[cb.tr][cb.tc]=def;   // def sobrevive
+    renderGame();
+    phase='play';
+    if(cb.defType==='tesoro' && net.host){ declareWinner(att.owner,'tesoro'); }
+    else if(cb.defType==='tesoro'){ /* el anfitrión declara; ambos verán por meta */ }
+  });
+}
+function declareWinner(winner,reason){
+  net.ref.child('meta').update({winner,reason,state:'over'}).catch(()=>{});
 }
 function startGame(){ turn='A'; selected=null; legal=null; phase='play'; renderGame(); bindBoard(); show('screen-game'); }
 
@@ -926,9 +1000,8 @@ function onDown(e){
   const r=+cell.dataset.r,c=+cell.dataset.c;
   if(selected && legal && legal.some(m=>m[0]===r&&m[1]===c)){
     const fr=selected[0],fc=selected[1];
-    if(mode==='online' && board[r][c]){ /* captura: combate llega en entrega 3 */ selected=null;legal=null;renderGame(); return; }
     selected=null;legal=null;
-    if(mode==='online'){ netSendMove(fr,fc,r,c); }
+    if(mode==='online'){ netSendMove(fr,fc,r,c); renderGame(); return; }  // animación y combate llegan por Firebase
     attemptMove(fr,fc,r,c,null); return;
   }
   const p=board[r][c];
@@ -977,9 +1050,8 @@ function onUp(e){
   if(cell){ const r=+cell.dataset.r,c=+cell.dataset.c;
     if(legal && legal.some(m=>m[0]===r&&m[1]===c)){
       const fr=d.fr,fc=d.fc;
-      if(mode==='online' && board[r][c]){ clearGhosts(); selected=null;legal=null;renderGame(); return; } // captura: entrega 3
       selected=null;legal=null;
-      if(mode==='online'){ netSendMove(fr,fc,r,c); }
+      if(mode==='online'){ clearGhosts(); netSendMove(fr,fc,r,c); renderGame(); return; }
       attemptMove(fr,fc,r,c,d.ghost); return; }
   }
   clearGhosts(); selected=null;legal=null;renderGame();
@@ -1030,6 +1102,28 @@ function attemptMove(fr,fc,tr,tc,ghost){
   }, 380);
 }
 // returns 'att' (attacker wins/moves in), 'def' (defender survives), 'both'
+function attemptMoveAnim(fr,fc,tr,tc,ghost,done){
+  phase='anim';
+  const att=board[fr][fc];
+  const src=cellEl(fr,fc);
+  if(src){const pc=src.querySelector('.piece'); if(pc)pc.style.visibility='hidden';}
+  let fly=ghost;
+  if(!fly){
+    const rt=src.getBoundingClientRect();
+    fly=document.createElement('div'); fly.className='ghost piece '+ownCls(att.owner);
+    fly.innerHTML=tileHTML(att, att.owner===viewSide());
+    fly.style.width=rt.width+'px';fly.style.height=rt.height+'px';
+    fly.style.left=rt.left+'px';fly.style.top=rt.top+'px';
+    document.body.appendChild(fly);
+  }
+  clearHover();
+  const t=cellCenter(tr,tc), w=t.w;
+  requestAnimationFrame(()=>{
+    fly.style.transition='left .34s cubic-bezier(.4,.7,.3,1),top .34s cubic-bezier(.4,.7,.3,1)';
+    fly.style.left=(t.x-w/2)+'px'; fly.style.top=(t.y-w/2)+'px';
+  });
+  setTimeout(()=>{ clearGhosts(); done&&done(); phase='play'; }, 380);
+}
 function resolve(att,def){
   const ar=TYPES[att.type].rank, dr=TYPES[def.type].rank;
   if(def.type==='tesoro')return 'att';
@@ -1081,9 +1175,12 @@ function endTurn(){
 
 function endGame(winner,reason){
   phase='over';
-  const sub = reason==='tesoro'?'tesoro capturado':reason==='bloqueo'?'rival sin movimientos':'rendición';
+  const sub = reason==='tesoro'?'tesoro capturado':reason==='bloqueo'?'rival sin movimientos':reason==='abandono'?'el rival abandonó':'rendición';
   if(mode==='ai'){
     $('end-title').textContent = winner===HUMAN ? '¡Victoria!' : 'Derrota';
+  } else if(mode==='online'){
+    $('end-title').textContent = winner===mySide() ? '¡Victoria!' : 'Derrota';
+    const b=$('disc-banner'); if(b)b.style.display='none';
   } else {
     $('end-title').textContent='Gana '+PNAME[winner];
   }
