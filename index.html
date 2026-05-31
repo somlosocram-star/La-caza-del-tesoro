@@ -255,7 +255,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   <button class="btn" id="btn-online" style="margin-top:.7rem">Dos jugadores · online</button>
   <button class="btn" id="btn-local" style="margin-top:.7rem">Dos jugadores · local</button>
   <p class="note" style="margin-top:1.4rem">El modo local es para probar mecánicas.<br>El online ya está aquí.</p>
-  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v15</p>
+  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v16</p>
 </div>
 
 <!-- DIFICULTAD -->
@@ -843,9 +843,10 @@ function netSendMove(fr,fc,tr,tc){
   const cap=!!board[tr][tc];
   const att=board[fr][fc];
   if(!att){ return; }
+  if(turn!==mySide()){ dbg('BLOQUEADO envío (no es mi turno local)'); renderGame(); return; }
+  if(att.owner!==mySide()){ dbg('BLOQUEADO envío (no es mi ficha)'); renderGame(); return; }
   const myTurn=mySide(), nextTurn=oppSide();
   net._awaiting=true;
-  // transacción: solo cambio el turno SI en el servidor sigue siendo el mío.
   net.ref.child('meta/turn').transaction(cur=>{
     if(cur && cur!==myTurn) return;          // abortar: ya no es mi turno
     return nextTurn;
