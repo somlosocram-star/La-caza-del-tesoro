@@ -255,7 +255,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   <button class="btn" id="btn-online" style="margin-top:.7rem">Dos jugadores · online</button>
   <button class="btn" id="btn-local" style="margin-top:.7rem">Dos jugadores · local</button>
   <p class="note" style="margin-top:1.4rem">El modo local es para probar mecánicas.<br>El online ya está aquí.</p>
-  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v18</p>
+  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v19</p>
 </div>
 
 <!-- DIFICULTAD -->
@@ -805,9 +805,9 @@ function watchOnlineGame(){
     if(m.turn){
       const changed = m.turn!==turn;
       turn=m.turn;
-      // si es mi turno, NUNCA debo quedar bloqueado esperando
-      if(turn===mySide()) net._awaiting=false;
-      if(changed && phase!=='anim' && phase!=='combat'){ selected=null; legal=null; renderGame(); }
+      if(turn===mySide()){ net._awaiting=false; }
+      // siempre refresco si no hay animación en curso (actualiza el bloqueo físico del tablero)
+      if(phase!=='anim' && phase!=='combat'){ if(changed){selected=null; legal=null;} renderGame(); }
       dbg('meta.turn='+m.turn+(m.winner?' winner='+m.winner:''));
     }
   });
@@ -846,30 +846,24 @@ function netSendMove(fr,fc,tr,tc){
   if(turn!==mySide()){ dbg('BLOQUEADO envío (no es mi turno local)'); renderGame(); return; }
   if(att.owner!==mySide()){ dbg('BLOQUEADO envío (no es mi ficha)'); renderGame(); return; }
   const myTurn=mySide(), nextTurn=oppSide();
-  net._awaiting=true;
-  net.ref.child('meta/turn').transaction(cur=>{
-    if(cur && cur!==myTurn) return;          // abortar: ya no es mi turno
-    return nextTurn;
-  }, (err,committed)=>{
-    if(err || !committed){
-      net.ref.child('meta').once('value').then(s=>{ const m=s.val()||{}; if(m.turn){turn=m.turn; if(turn===mySide())net._awaiting=false;} renderGame(); });
-      dbg('TXN ABORTADA (no era mi turno en server)');
-      return;
-    }
-    net._lastMove=(net._lastMove||0)+1;
-    const n=net._lastMove;
-    net._seen=net._seen||{}; net._seen[n]=true;   // mi propia jugada: no reprocesarla al volver por child_added
-    const mv={by:fb.uid,side:myTurn,fr,fc,tr,tc,n,cap};
-    if(cap) mv.attType=att.type;
-    net.ref.child('moves').push(mv).catch(e=>console.error('move push',e));
-    dbg('TXN OK envío '+(cap?'ataque':'mov')+' '+fr+','+fc+'->'+tr+','+tc);
-    // aplico MI jugada en MI tablero ya mismo:
-    if(cap){
-      // ataque: espero el nodo combat (lo resuelve el defensor); animo al recibirlo
-    } else {
-      attemptMoveAnim(fr,fc,tr,tc,null,()=>{ board[tr][tc]=att; board[fr][fc]=null; renderGame(); });
-    }
-  });
+  net._lastMove=(net._lastMove||0)+1;
+  const n=net._lastMove;
+  net._seen=net._seen||{}; net._seen[n]=true;       // mi propia jugada: no reprocesarla al volver
+  const mv={by:fb.uid,side:myTurn,fr,fc,tr,tc,n,cap};
+  if(cap) mv.attType=att.type;
+  // 1) cambio de turno y aplicación LOCAL inmediatos (optimista, sin esperar a la red)
+  turn=nextTurn; net._awaiting=false;
+  // 2) escrituras a Firebase en segundo plano (no bloquean la jugada)
+  net.ref.child('moves').push(mv).catch(e=>console.error('move push',e));
+  net.ref.child('meta').update({turn:nextTurn}).catch(e=>console.error('turn',e));
+  dbg('envío '+(cap?'ataque':'mov')+' '+fr+','+fc+'->'+tr+','+tc);
+  // 3) animación local de MI jugada
+  if(cap){
+    // ataque: el defensor resuelve y publica combat; animo al recibirlo
+    renderGame();
+  } else {
+    attemptMoveAnim(fr,fc,tr,tc,null,()=>{ board[tr][tc]=att; board[fr][fc]=null; renderGame(); });
+  }
 }
 function runOnlineCombat(cb){
   if(net._combatDone&&net._combatDone[cb.n])return;
