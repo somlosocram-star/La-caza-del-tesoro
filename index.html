@@ -255,7 +255,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   <button class="btn" id="btn-online" style="margin-top:.7rem">Dos jugadores · online</button>
   <button class="btn" id="btn-local" style="margin-top:.7rem">Dos jugadores · local</button>
   <p class="note" style="margin-top:1.4rem">El modo local es para probar mecánicas.<br>El online ya está aquí.</p>
-  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v22</p>
+  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v23</p>
 </div>
 
 <!-- DIFICULTAD -->
@@ -826,10 +826,15 @@ function watchOnlineGame(){
       }
       // ambos esperan al nodo combat para animar (watcher de abajo)
     } else {
-      // movimiento simple: animar el deslizamiento (atacante y rival ven lo mismo)
-      const att=board[mv.fr][mv.fc];
-      if(att){ attemptMoveAnim(mv.fr,mv.fc,mv.tr,mv.tc,null,()=>{ board[mv.tr][mv.tc]=att; board[mv.fr][mv.fc]=null; renderGame(); }); }
-      else renderGame();
+      // movimiento simple del rival: mover su ficha de origen a destino
+      let att=board[mv.fr][mv.fc];
+      if(!att){
+        // la casilla origen estaba vacía en mi tablero (desincronización): reconstruyo la ficha del rival
+        att={owner:mv.side, type:'hidden', id:'o'+mv.fr+'_'+mv.fc};
+      }
+      // aseguro el dueño correcto (es del rival)
+      if(att.owner!==mv.side) att={owner:mv.side, type:(att.type||'hidden'), id:att.id||('o'+mv.fr+'_'+mv.fc)};
+      attemptMoveAnim(mv.fr,mv.fc,mv.tr,mv.tc,null,()=>{ board[mv.tr][mv.tc]=att; board[mv.fr][mv.fc]=null; renderGame(); });
     }
   });
   // combates publicados: ambos animan igual
@@ -843,27 +848,29 @@ function netSendMove(fr,fc,tr,tc){
   const cap=!!board[tr][tc];
   const att=board[fr][fc];
   if(!att){ return; }
-  if(turn!==mySide()){ dbg('BLOQUEADO envío (no es mi turno local)'); renderGame(); return; }
-  if(att.owner!==mySide()){ dbg('BLOQUEADO envío (no es mi ficha)'); renderGame(); return; }
+  if(turn!==mySide()){ renderGame(); return; }
+  if(att.owner!==mySide()){ renderGame(); return; }
   const myTurn=mySide(), nextTurn=oppSide();
   net._lastMove=(net._lastMove||0)+1;
-  const n=net._lastMove;
-  net._seen=net._seen||{}; net._seen[n]=true;       // mi propia jugada: no reprocesarla al volver
+  const n=myTurn+net._lastMove;                     // id único: 'A1','B1','A2'... nunca colisiona
+  net._seen=net._seen||{}; net._seen[n]=true;
   const mv={by:fb.uid,side:myTurn,fr,fc,tr,tc,n,cap};
   if(cap) mv.attType=att.type;
-  // 1) cambio de turno y aplicación LOCAL inmediatos (optimista, sin esperar a la red)
+  // cambio local inmediato (optimista)
   turn=nextTurn; net._awaiting=false;
-  // 2) escrituras a Firebase en segundo plano (no bloquean la jugada)
-  net.ref.child('moves').push(mv).catch(e=>console.error('move push',e));
-  net.ref.child('meta').update({turn:nextTurn}).catch(e=>console.error('turn',e));
-  dbg('envío '+(cap?'ataque':'mov')+' '+fr+','+fc+'->'+tr+','+tc);
-  // 3) animación local de MI jugada
-  if(cap){
-    // ataque: el defensor resuelve y publica combat; animo al recibirlo
-    renderGame();
-  } else {
-    attemptMoveAnim(fr,fc,tr,tc,null,()=>{ board[tr][tc]=att; board[fr][fc]=null; renderGame(); });
-  }
+  // ESCRITURA ATÓMICA: movimiento + turno en una sola operación (o ambos, o ninguno)
+  const moveKey = net.ref.child('moves').push().key;   // clave única de Firebase
+  const updates = {};
+  updates['moves/'+moveKey] = mv;
+  updates['meta/turn'] = nextTurn;
+  net.ref.update(updates).catch(e=>{
+    // si la escritura falla (p.ej. reglas), AVISO visible y revierto el turno
+    alert('No se pudo enviar el movimiento: '+(e&&e.code||e)+'. Revisa las reglas de Firebase.');
+    turn=myTurn; renderGame();
+  });
+  // animación local de MI jugada
+  if(cap){ renderGame(); }
+  else { attemptMoveAnim(fr,fc,tr,tc,null,()=>{ board[tr][tc]=att; board[fr][fc]=null; renderGame(); }); }
 }
 function runOnlineCombat(cb){
   if(net._combatDone&&net._combatDone[cb.n])return;
