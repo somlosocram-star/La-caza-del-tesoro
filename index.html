@@ -255,7 +255,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   <button class="btn" id="btn-online" style="margin-top:.7rem">Dos jugadores · online</button>
   <button class="btn" id="btn-local" style="margin-top:.7rem">Dos jugadores · local</button>
   <p class="note" style="margin-top:1.4rem">El modo local es para probar mecánicas.<br>El online ya está aquí.</p>
-  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v25</p>
+  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v26</p>
 </div>
 
 <!-- DIFICULTAD -->
@@ -922,12 +922,17 @@ function runOnlineCombat(cb){
     fly.innerHTML=tileHTML(att, att.owner===viewSide());
     fly.style.width=rt.width+'px';fly.style.height=rt.height+'px';
     fly.style.left=rt.left+'px';fly.style.top=rt.top+'px';
+    fly.style.transition='none';
     document.body.appendChild(fly);
+    const ATKDUR=520;
     requestAnimationFrame(()=>{
-      fly.style.transition='left .34s cubic-bezier(.4,.7,.3,1),top .34s cubic-bezier(.4,.7,.3,1)';
-      fly.style.left=(to.x-rt.width/2)+'px'; fly.style.top=(to.y-rt.height/2)+'px';
+      void fly.offsetWidth;
+      requestAnimationFrame(()=>{
+        fly.style.transition='left '+ATKDUR+'ms cubic-bezier(.34,.66,.3,1),top '+ATKDUR+'ms cubic-bezier(.34,.66,.3,1)';
+        fly.style.left=(to.x-rt.width/2)+'px'; fly.style.top=(to.y-rt.height/2)+'px';
+      });
     });
-    setTimeout(()=>{ try{fly.remove();}catch(e){} lanzarCombate(); }, 380);
+    setTimeout(()=>{ try{fly.remove();}catch(e){} lanzarCombate(); }, ATKDUR+120);
   } else {
     lanzarCombate();
   }
@@ -1178,14 +1183,16 @@ function attemptMove(fr,fc,tr,tc,ghost){
   }, 380);
 }
 // returns 'att' (attacker wins/moves in), 'def' (defender survives), 'both'
-function attemptMoveAnim(fr,fc,tr,tc,ghost,done){
+function attemptMoveAnim(fr,fc,tr,tc,ghost,done,dur){
   const att=board[fr][fc];
   const src=cellEl(fr,fc);
   const t=cellCenter(tr,tc);
-  // si no existe alguna celda en el DOM, aplico el movimiento SIN animación (evita crash)
   if(!att || !src || !t){ clearGhosts(); done&&done(); phase='play'; return; }
+  dur = dur || 420;
   phase='anim';
-  const pc0=src.querySelector('.piece'); if(pc0)pc0.style.visibility='hidden';
+  clearHover();
+  // oculto la ficha de origen YA y fuerzo reflow para que no se vea doble
+  const pc0=src.querySelector('.piece'); if(pc0){ pc0.style.visibility='hidden'; }
   let fly=ghost;
   if(!fly){
     const rt=src.getBoundingClientRect();
@@ -1193,15 +1200,24 @@ function attemptMoveAnim(fr,fc,tr,tc,ghost,done){
     fly.innerHTML=tileHTML(att, att.owner===viewSide());
     fly.style.width=rt.width+'px';fly.style.height=rt.height+'px';
     fly.style.left=rt.left+'px';fly.style.top=rt.top+'px';
+    fly.style.transition='none';
     document.body.appendChild(fly);
   }
-  clearHover();
   const w=t.w;
+  // doble RAF: el primero fija la posición inicial, el segundo lanza la transición (arranque limpio)
   requestAnimationFrame(()=>{
-    fly.style.transition='left .34s cubic-bezier(.4,.7,.3,1),top .34s cubic-bezier(.4,.7,.3,1)';
-    fly.style.left=(t.x-w/2)+'px'; fly.style.top=(t.y-w/2)+'px';
+    void fly.offsetWidth;   // fuerza reflow
+    requestAnimationFrame(()=>{
+      fly.style.transition='left '+dur+'ms cubic-bezier(.34,.66,.3,1),top '+dur+'ms cubic-bezier(.34,.66,.3,1)';
+      fly.style.left=(t.x-w/2)+'px'; fly.style.top=(t.y-w/2)+'px';
+    });
   });
-  setTimeout(()=>{ clearGhosts(); phase='play'; done&&done(); updateBoardLock(); }, 380);
+  setTimeout(()=>{
+    // primero aplico el estado y repinto, LUEGO borro la fantasma (evita el parpadeo de dos fichas)
+    phase='play';
+    done&&done();
+    requestAnimationFrame(()=>{ clearGhosts(); updateBoardLock(); });
+  }, dur+30);
 }
 function resolve(att,def){
   const ar=TYPES[att.type].rank, dr=TYPES[def.type].rank;
