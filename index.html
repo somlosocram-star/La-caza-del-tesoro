@@ -255,7 +255,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   <button class="btn" id="btn-online" style="margin-top:.7rem">Dos jugadores · online</button>
   <button class="btn" id="btn-local" style="margin-top:.7rem">Dos jugadores · local</button>
   <p class="note" style="margin-top:1.4rem">El modo local es para probar mecánicas.<br>El online ya está aquí.</p>
-  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v16</p>
+  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v17</p>
 </div>
 
 <!-- DIFICULTAD -->
@@ -853,7 +853,7 @@ function netSendMove(fr,fc,tr,tc){
   }, (err,committed)=>{
     if(err || !committed){
       net.ref.child('meta').once('value').then(s=>{ const m=s.val()||{}; if(m.turn){turn=m.turn; if(turn===mySide())net._awaiting=false;} renderGame(); });
-      dbg('ENVÍO ABORTADO (no era mi turno)');
+      dbg('TXN ABORTADA (no era mi turno en server)');
       return;
     }
     net._lastMove=(net._lastMove||0)+1;
@@ -861,7 +861,7 @@ function netSendMove(fr,fc,tr,tc){
     const mv={by:fb.uid,side:myTurn,fr,fc,tr,tc,n,cap};
     if(cap) mv.attType=att.type;
     net.ref.child('moves').push(mv).catch(e=>console.error('move push',e));
-    dbg('ENVÍO '+(cap?'ataque':'mov')+' '+fr+','+fc+'->'+tr+','+tc);
+    dbg('TXN OK envío '+(cap?'ataque':'mov')+' '+fr+','+fc+'->'+tr+','+tc);
   });
 }
 function runOnlineCombat(cb){
@@ -971,7 +971,12 @@ function renderGame(){
     g.appendChild(cell);
   }
   if(mode==='ai'){ $('turn-who').textContent = turn===HUMAN ? 'Tu turno' : 'La IA piensa…'; }
-  else if(mode==='online'){ $('turn-who').textContent = turn===mySide() ? 'Tu turno' : 'Turno del rival'; }
+  else if(mode==='online'){ $('turn-who').textContent = turn===mySide() ? 'Tu turno' : 'Turno del rival';
+    // bloqueo físico: si no es mi turno (o espero confirmación), el tablero no responde al tacto
+    const canPlay = (turn===mySide() && !net._awaiting && phase==='play');
+    g.style.pointerEvents = canPlay ? 'auto' : 'none';
+    g.style.opacity = canPlay ? '1' : '.78';
+  }
   else $('turn-who').textContent=PNAME[turn]+' · '+PCOLOR[turn];
   $('tally').textContent='A '+countPieces('A')+'  ·  B '+countPieces('B');
   renderGemTray();
