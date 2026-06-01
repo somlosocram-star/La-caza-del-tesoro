@@ -255,7 +255,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   <button class="btn" id="btn-online" style="margin-top:.7rem">Dos jugadores · online</button>
   <button class="btn" id="btn-local" style="margin-top:.7rem">Dos jugadores · local</button>
   <p class="note" style="margin-top:1.4rem">El modo local es para probar mecánicas.<br>El online ya está aquí.</p>
-  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v24</p>
+  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v25</p>
 </div>
 
 <!-- DIFICULTAD -->
@@ -529,6 +529,11 @@ function leaveRoom(){
   net={code:null,host:false,ref:null,metaCb:null,side:null,myReady:false,started:false,watchers:[],_kickoff:false,_loading:false};
 }
 function netOn(path,ev,cb){ const h=net.ref.child(path).on(ev,cb); net.watchers.push({path,ev,cb:h}); return h; }
+function clearWatchers(){
+  if(!net.ref)return;
+  net.watchers.forEach(w=>{ try{ net.ref.child(w.path).off(w.ev,w.cb); }catch(e){} });
+  net.watchers=[];
+}
 
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('visible'));$(id).classList.add('visible');curScreen=id;updateMusic();}
 
@@ -907,8 +912,25 @@ function runOnlineCombat(cb){
     }).catch(()=>{ selected=null; legal=null; renderGame(); });
   };
   // red de seguridad: si la animación no cierra en 5s, cierro igual
-  const safety=setTimeout(finish, 5000);
-  playCombat(att,def,cb.res,()=>{ clearTimeout(safety); finish(); });
+  const safety=setTimeout(finish, 5500);
+  // animo primero el DESPLAZAMIENTO del atacante hasta la víctima, luego el combate
+  const lanzarCombate=()=>{ playCombat(att,def,cb.res,()=>{ clearTimeout(safety); finish(); }); };
+  const from=cellCenter(cb.fr,cb.fc), to=cellCenter(cb.tr,cb.tc);
+  if(from && to && src){
+    const rt=src.getBoundingClientRect();
+    const fly=document.createElement('div'); fly.className='ghost piece '+ownCls(att.owner);
+    fly.innerHTML=tileHTML(att, att.owner===viewSide());
+    fly.style.width=rt.width+'px';fly.style.height=rt.height+'px';
+    fly.style.left=rt.left+'px';fly.style.top=rt.top+'px';
+    document.body.appendChild(fly);
+    requestAnimationFrame(()=>{
+      fly.style.transition='left .34s cubic-bezier(.4,.7,.3,1),top .34s cubic-bezier(.4,.7,.3,1)';
+      fly.style.left=(to.x-rt.width/2)+'px'; fly.style.top=(to.y-rt.height/2)+'px';
+    });
+    setTimeout(()=>{ try{fly.remove();}catch(e){} lanzarCombate(); }, 380);
+  } else {
+    lanzarCombate();
+  }
 }
 function dbg(msg){ /* panel de diagnóstico desactivado */ }
 function declareWinner(winner,reason){
@@ -1376,7 +1398,23 @@ $('btn-random').onclick=randomFill;
 $('btn-clear').onclick=clearSetup;
 $('btn-ready').onclick=setupReady;
 $('btn-resign').onclick=()=>{ if(phase==='play'){ const w = mode==='ai' ? AI : (turn==='A'?'B':'A'); endGame(w,'rendicion'); } };
-$('btn-rematch').onclick=()=>{ reset(); startSetup('A'); };
+$('btn-rematch').onclick=()=>{
+  if(mode==='online' && net && net.ref){
+    clearWatchers();   // suelto los watchers de la partida anterior (evita duplicados)
+    // limpio flags locales de la partida anterior
+    net._kickoff=false; net._loading=false; net.myReady=false;
+    net._seen={}; net._combatDone={}; net._lastMove=0; net._awaiting=false;
+    // el anfitrión limpia los nodos compartidos en Firebase; el invitado solo su setup
+    const clearShared = net.host
+      ? net.ref.update({ ready:null, setups:null, moves:null, combat:null, 'meta/state':'setup', 'meta/turn':null, 'meta/winner':null, 'meta/reason':null })
+      : net.ref.child('setups/'+fb.uid).remove();
+    Promise.resolve(clearShared).catch(()=>{}).then(()=>{
+      reset(); enterOnlineSetup();
+    });
+  } else {
+    reset(); startSetup('A');
+  }
+};
 $('btn-menu').onclick=()=>{ reset(); show('screen-intro'); };
 
 $('theme-toggle').onclick=()=>{ document.body.classList.toggle('light'); try{localStorage.setItem('tl_theme',document.body.classList.contains('light')?'light':'dark');}catch(e){} };
