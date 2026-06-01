@@ -255,7 +255,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   <button class="btn" id="btn-online" style="margin-top:.7rem">Dos jugadores · online</button>
   <button class="btn" id="btn-local" style="margin-top:.7rem">Dos jugadores · local</button>
   <p class="note" style="margin-top:1.4rem">El modo local es para probar mecánicas.<br>El online ya está aquí.</p>
-  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v19</p>
+  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v21</p>
 </div>
 
 <!-- DIFICULTAD -->
@@ -806,9 +806,8 @@ function watchOnlineGame(){
       const changed = m.turn!==turn;
       turn=m.turn;
       if(turn===mySide()){ net._awaiting=false; }
-      // siempre refresco si no hay animación en curso (actualiza el bloqueo físico del tablero)
-      if(phase!=='anim' && phase!=='combat'){ if(changed){selected=null; legal=null;} renderGame(); }
-      dbg('meta.turn='+m.turn+(m.winner?' winner='+m.winner:''));
+      // solo re-renderizo cuando el turno cambia de verdad y no hay animación
+      if(changed && phase!=='anim' && phase!=='combat'){ selected=null; legal=null; renderGame(); }
     }
   });
   // todas las jugadas (las mías para animar, las del rival también)
@@ -903,17 +902,7 @@ function runOnlineCombat(cb){
   const safety=setTimeout(finish, 5000);
   playCombat(att,def,cb.res,()=>{ clearTimeout(safety); finish(); });
 }
-function dbg(msg){
-  if(mode!=='online')return;
-  let el=$('dbg-panel');
-  if(!el){
-    el=document.createElement('div'); el.id='dbg-panel';
-    el.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:700;background:rgba(0,0,0,.85);color:#6f6;font-family:monospace;font-size:9px;line-height:1.3;padding:3px 6px;max-height:28vh;overflow:auto;white-space:pre-wrap;';
-    document.body.appendChild(el);
-  }
-  const line='['+mySide()+'] turn='+turn+' await='+(net._awaiting?1:0)+' ph='+phase+(msg?'  '+msg:'');
-  el.textContent=(line+'\n'+el.textContent).split('\n').slice(0,40).join('\n');
-}
+function dbg(msg){ /* panel de diagnóstico desactivado */ }
 function declareWinner(winner,reason){
   net.ref.child('meta').update({winner,reason,state:'over'}).catch(()=>{});
 }
@@ -1111,14 +1100,14 @@ function onUp(e){
   clearGhosts(); selected=null;legal=null;renderGame();
 }
 
-function cellCenter(r,c){ const rt=cellEl(r,c).getBoundingClientRect(); return {x:rt.left+rt.width/2,y:rt.top+rt.height/2,w:rt.width}; }
+function cellCenter(r,c){ const el=cellEl(r,c); if(!el)return null; const rt=el.getBoundingClientRect(); return {x:rt.left+rt.width/2,y:rt.top+rt.height/2,w:rt.width}; }
 function attemptMove(fr,fc,tr,tc,ghost){
   phase='anim';
   const att=board[fr][fc], def=board[tr][tc];
   const src=cellEl(fr,fc);
   if(src){const pc=src.querySelector('.piece'); if(pc)pc.style.visibility='hidden';}
   let fly=ghost;
-  if(!fly){
+  if(!fly && src){
     const rt=src.getBoundingClientRect();
     fly=document.createElement('div'); fly.className='ghost piece '+ownCls(att.owner);
     fly.innerHTML=tileHTML(att, att.owner===viewSide());
@@ -1131,8 +1120,8 @@ function attemptMove(fr,fc,tr,tc,ghost){
     aiMoved[att.id]=true;
     if(Math.abs(tr-fr)+Math.abs(tc-fc)>1) aiKnown[att.id]='navegante'; // sólo el navegante se desliza
   }
-  const t=cellCenter(tr,tc), w=t.w;
-  requestAnimationFrame(()=>{
+  const t=cellCenter(tr,tc), w=t?t.w:40;
+  if(fly && t) requestAnimationFrame(()=>{
     fly.style.transition='left .34s cubic-bezier(.4,.7,.3,1),top .34s cubic-bezier(.4,.7,.3,1)';
     fly.style.left=(t.x-w/2)+'px'; fly.style.top=(t.y-w/2)+'px';
   });
@@ -1157,10 +1146,13 @@ function attemptMove(fr,fc,tr,tc,ghost){
 }
 // returns 'att' (attacker wins/moves in), 'def' (defender survives), 'both'
 function attemptMoveAnim(fr,fc,tr,tc,ghost,done){
-  phase='anim';
   const att=board[fr][fc];
   const src=cellEl(fr,fc);
-  if(src){const pc=src.querySelector('.piece'); if(pc)pc.style.visibility='hidden';}
+  const t=cellCenter(tr,tc);
+  // si no existe alguna celda en el DOM, aplico el movimiento SIN animación (evita crash)
+  if(!att || !src || !t){ clearGhosts(); done&&done(); phase='play'; return; }
+  phase='anim';
+  const pc0=src.querySelector('.piece'); if(pc0)pc0.style.visibility='hidden';
   let fly=ghost;
   if(!fly){
     const rt=src.getBoundingClientRect();
@@ -1171,7 +1163,7 @@ function attemptMoveAnim(fr,fc,tr,tc,ghost,done){
     document.body.appendChild(fly);
   }
   clearHover();
-  const t=cellCenter(tr,tc), w=t.w;
+  const w=t.w;
   requestAnimationFrame(()=>{
     fly.style.transition='left .34s cubic-bezier(.4,.7,.3,1),top .34s cubic-bezier(.4,.7,.3,1)';
     fly.style.left=(t.x-w/2)+'px'; fly.style.top=(t.y-w/2)+'px';
