@@ -255,7 +255,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   <button class="btn" id="btn-online" style="margin-top:.7rem">Dos jugadores · online</button>
   <button class="btn" id="btn-local" style="margin-top:.7rem">Dos jugadores · local</button>
   <p class="note" style="margin-top:1.4rem">El modo local es para probar mecánicas.<br>El online ya está aquí.</p>
-  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v21</p>
+  <p class="note" id="ver-tag" style="margin-top:.8rem;opacity:.5;font-size:.6rem;letter-spacing:.2em;">v22</p>
 </div>
 
 <!-- DIFICULTAD -->
@@ -808,6 +808,7 @@ function watchOnlineGame(){
       if(turn===mySide()){ net._awaiting=false; }
       // solo re-renderizo cuando el turno cambia de verdad y no hay animación
       if(changed && phase!=='anim' && phase!=='combat'){ selected=null; legal=null; renderGame(); }
+      updateBoardLock();   // suelta/pone el candado SIEMPRE, aunque haya animación
     }
   });
   // todas las jugadas (las mías para animar, las del rival también)
@@ -889,13 +890,13 @@ function runOnlineCombat(cb){
     if(closed)return; closed=true;
     applyResult();
     phase='play';
+    updateBoardLock();
     if(cb.defType==='tesoro' && net.host){ declareWinner(att.owner,'tesoro'); return; }
     net.ref.child('meta').once('value').then(s=>{
       const m=s.val()||{};
       if(m.winner){ return endGame(m.winner,m.reason||'tesoro'); }
       if(m.turn){ turn=m.turn; net._awaiting=false; }
       selected=null; legal=null; renderGame();
-      dbg('FIN combate -> turn='+turn);
     }).catch(()=>{ selected=null; legal=null; renderGame(); });
   };
   // red de seguridad: si la animación no cierra en 5s, cierro igual
@@ -939,6 +940,14 @@ function hasAnyMove(owner){
   return false;
 }
 function cellEl(r,c){ return $('board').querySelector('.cell[data-r="'+r+'"][data-c="'+c+'"]'); }
+function updateBoardLock(){
+  if(mode!=='online')return;
+  const g=$('board'); if(!g)return;
+  const canPlay = (turn===mySide() && !net._awaiting && (phase==='play'||phase==='anim'));
+  g.style.pointerEvents = (turn===mySide() && !net._awaiting && phase==='play') ? 'auto' : 'none';
+  g.style.opacity = (turn===mySide()) ? '1' : '.78';
+  const tw=$('turn-who'); if(tw) tw.textContent = turn===mySide() ? 'Tu turno' : 'Turno del rival';
+}
 function renderGame(){
   const g=$('board');g.innerHTML='';g.style.gridTemplateColumns='repeat('+COLS+',1fr)';
   const vs=viewSide();
@@ -961,12 +970,7 @@ function renderGame(){
     g.appendChild(cell);
   }
   if(mode==='ai'){ $('turn-who').textContent = turn===HUMAN ? 'Tu turno' : 'La IA piensa…'; }
-  else if(mode==='online'){ $('turn-who').textContent = turn===mySide() ? 'Tu turno' : 'Turno del rival';
-    // bloqueo físico: si no es mi turno (o espero confirmación), el tablero no responde al tacto
-    const canPlay = (turn===mySide() && !net._awaiting && phase==='play');
-    g.style.pointerEvents = canPlay ? 'auto' : 'none';
-    g.style.opacity = canPlay ? '1' : '.78';
-  }
+  else if(mode==='online'){ $('turn-who').textContent = turn===mySide() ? 'Tu turno' : 'Turno del rival'; updateBoardLock(); }
   else $('turn-who').textContent=PNAME[turn]+' · '+PCOLOR[turn];
   $('tally').textContent='A '+countPieces('A')+'  ·  B '+countPieces('B');
   renderGemTray();
@@ -1168,7 +1172,7 @@ function attemptMoveAnim(fr,fc,tr,tc,ghost,done){
     fly.style.transition='left .34s cubic-bezier(.4,.7,.3,1),top .34s cubic-bezier(.4,.7,.3,1)';
     fly.style.left=(t.x-w/2)+'px'; fly.style.top=(t.y-w/2)+'px';
   });
-  setTimeout(()=>{ clearGhosts(); done&&done(); phase='play'; }, 380);
+  setTimeout(()=>{ clearGhosts(); phase='play'; done&&done(); updateBoardLock(); }, 380);
 }
 function resolve(att,def){
   const ar=TYPES[att.type].rank, dr=TYPES[def.type].rank;
