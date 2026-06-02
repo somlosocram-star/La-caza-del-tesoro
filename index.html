@@ -155,19 +155,26 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
 .tally{font-family:'IBM Plex Mono',monospace;font-size:.58rem;letter-spacing:.1em;color:var(--muted);}
 
 /* setup tray */
-#tray{flex:0 0 auto;width:100%;padding:.5rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;}
-.trib{position:relative;border:1px solid var(--line);border-radius:11px;padding:.4rem .35rem .32rem;
-  display:flex;flex-direction:column;align-items:center;gap:1px;cursor:grab;width:60px;color:var(--text);
-  background:linear-gradient(180deg,color-mix(in srgb,var(--text) 5%,var(--panel)),var(--panel));
-  box-shadow:0 2px 0 rgba(0,0,0,.4),0 4px 10px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.05);
+#tray{flex:0 0 auto;width:100%;padding:.6rem 1rem;display:grid;grid-template-columns:repeat(3,74px);
+  gap:.6rem;justify-content:center;align-content:start;}
+.trib{position:relative;border:1px solid var(--line);border-radius:13px;padding:.5rem .35rem .4rem;
+  display:flex;flex-direction:column;align-items:center;gap:2px;cursor:grab;width:100%;color:var(--text);
+  background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0) 46%),linear-gradient(180deg,#2c2c39,#15151b);
+  box-shadow:0 3px 0 rgba(0,0,0,.5),0 7px 15px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.18),inset 0 -3px 5px rgba(0,0,0,.32);
   transition:transform .1s ease,box-shadow .1s ease,opacity .18s ease;}
-.trib.pA{background:linear-gradient(180deg,#262631,#1a1a21);color:#f7f7f4;border-color:#3a3a46;}
-.trib.pB{background:linear-gradient(180deg,#ffffff,#e9e9ec);color:#101015;border-color:#c7c7cf;}
-.trib.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 2px 0 rgba(0,0,0,.4),0 6px 16px rgba(120,170,200,.32),inset 0 1px 0 rgba(255,255,255,.06);transform:translateY(-1px);}
-.trib.done{opacity:.3;pointer-events:none;box-shadow:none;}
-.trib:active{transform:translateY(2px);box-shadow:0 0 0 transparent,0 2px 5px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.05);}
-.trib .tn{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:.62rem;letter-spacing:.04em;color:inherit;}
-.trib .tc{font-family:'IBM Plex Mono',monospace;font-size:.52rem;color:inherit;opacity:.55;letter-spacing:.04em;}
+.trib.pA{color:#f7f7f4;border-color:#41414f;
+  background:linear-gradient(180deg,rgba(255,255,255,.17),rgba(255,255,255,0) 46%),linear-gradient(180deg,#2e2e3b,#15151b);}
+.trib.pB{color:#101015;border-color:#c4c4cd;
+  background:linear-gradient(180deg,rgba(255,255,255,.95),rgba(0,0,0,.05) 55%),linear-gradient(180deg,#fbfbfd,#dedee4);
+  box-shadow:0 3px 0 rgba(0,0,0,.32),0 7px 15px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.9),inset 0 -3px 5px rgba(0,0,0,.12);}
+.trib.sel{border-color:var(--accent);transform:translateY(-2px);
+  box-shadow:0 0 0 2px var(--accent),0 5px 0 rgba(0,0,0,.45),0 10px 20px rgba(120,170,200,.4),inset 0 1px 0 rgba(255,255,255,.2);}
+.trib.done{opacity:.28;pointer-events:none;box-shadow:none;transform:none;}
+.trib:active{transform:translateY(3px);
+  box-shadow:0 0 0 transparent,0 2px 6px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.14),inset 0 -2px 4px rgba(0,0,0,.3);}
+.trib .ic,.trib .tn,.trib .tc{position:relative;z-index:1;}
+.trib .tn{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:.64rem;letter-spacing:.05em;color:inherit;}
+.trib .tc{font-family:'IBM Plex Mono',monospace;font-size:.54rem;color:inherit;opacity:.55;letter-spacing:.04em;}
 
 /* toast */
 #toast{position:fixed;left:50%;top:18%;transform:translateX(-50%);z-index:650;background:var(--panel);
@@ -279,7 +286,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
     <button class="btn" id="btn-ai">Un jugador · vs IA</button>
     <button class="btn" id="btn-online">Dos jugadores · online</button>
   </div>
-  <p class="note" id="ver-tag">v27</p>
+  <p class="note" id="ver-tag">v28</p>
 </div>
 
 <!-- DIFICULTAD -->
