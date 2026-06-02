@@ -312,7 +312,7 @@ body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
     <button class="btn" id="btn-mode-normal">Modo normal</button>
     <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v36</p>
+  <p class="note" id="ver-tag">v38</p>
 </div>
 
 <!-- ELEGIR: vs IA / ONLINE -->
@@ -490,6 +490,14 @@ const GEM_COLORS=['yellow','red','green','blue'];
 function emptyGems(){return {yellow:null,red:null,green:null,blue:null};}
 let gemsOf={A:emptyGems(),B:emptyGems()};
 function curGems(){ return gemsOf[viewSide()]; }
+function findPieceCell(id){ for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ const p=board[r][c]; if(p&&p.id===id)return [r,c]; } return null; }
+// posición donde dibujar una gema; si seguía a una pieza que ya no existe, la libera (vuelve a la bandeja)
+function gemPos(side,col){
+  const g=gemsOf[side]&&gemsOf[side][col]; if(!g)return null;
+  if(g.cell)return g.cell;
+  if(g.pid!=null){ const pos=findPieceCell(g.pid); if(!pos){ gemsOf[side][col]=null; return null; } return pos; }
+  return null;
+}
 let pidSeq=0;
 function mkPiece(owner,type){ return {owner,type,id:++pidSeq}; }
 function viewSide(){ return mode==='ai' ? HUMAN : (mode==='online' ? mySide() : turn); }
@@ -977,10 +985,12 @@ function runOnlineCombat(cb){
 
   // 1) APLICAR EL RESULTADO AL ESTADO YA (no depende de la animación)
   function applyResult(){
+    const attId=(board[cb.fr][cb.fc]&&board[cb.fr][cb.fc].id)||att.id;   // conserva la identidad real para que las gemas la sigan
+    const defId=(board[cb.tr][cb.tc]&&board[cb.tr][cb.tc].id)||def.id;
     board[cb.fr][cb.fc]=null;
-    if(cb.res==='att') board[cb.tr][cb.tc]=att;
+    if(cb.res==='att') board[cb.tr][cb.tc]={owner:attOwner,type:cb.attType,id:attId};
     else if(cb.res==='both') board[cb.tr][cb.tc]=null;
-    else board[cb.tr][cb.tc]=def;   // def sobrevive
+    else board[cb.tr][cb.tc]={owner:defOwner,type:cb.defType,id:defId};   // def sobrevive
   }
 
   // 2) animación visual; pase lo que pase, al final re-sincroniza turno y marcador
@@ -1098,14 +1108,27 @@ function hasAnyMove(owner){
   }
   return false;
 }
+// ONLINE: si es mi turno y no tengo NINGÚN movimiento legal, pierdo (el rival gana). Diferido para no
+// disparar con el tablero a medio sincronizar; sólo actúa con el estado asentado (mi turno, fase de juego, sin esperar).
+function maybeDeclareBlock(){
+  if(mode!=='online'||!board||!net||!net.ref) return;
+  clearTimeout(net._blockTimer);
+  if(phase!=='play'||turn!==mySide()||net._awaiting) return;
+  net._blockTimer=setTimeout(()=>{
+    if(mode==='online' && phase==='play' && turn===mySide() && !net._awaiting && board && !hasAnyMove(mySide())){
+      declareWinner(mySide()==='A'?'B':'A','bloqueo');
+    }
+  }, 900);
+}
 function cellEl(r,c){ return $('board').querySelector('.cell[data-r="'+r+'"][data-c="'+c+'"]'); }
 function updateBoardLock(){
   if(mode!=='online')return;
   const g=$('board'); if(!g)return;
   const canPlay = (turn===mySide() && !net._awaiting && (phase==='play'||phase==='anim'));
-  g.style.pointerEvents = (turn===mySide() && !net._awaiting && phase==='play') ? 'auto' : 'none';
+  g.style.pointerEvents = 'auto';   // el tablero recibe eventos siempre: el bloqueo de piezas se hace en onDown, y las gemas deben poder colocarse en cualquier turno
   g.style.opacity = (turn===mySide()) ? '1' : '.78';
   const tw=$('turn-who'); if(tw) tw.textContent = turn===mySide() ? 'Tu turno' : 'Turno del rival';
+  maybeDeclareBlock();
 }
 function renderGame(){
   const g=$('board');g.innerHTML='';g.style.gridTemplateColumns='repeat('+COLS+',1fr)';
@@ -1113,7 +1136,7 @@ function renderGame(){
   const rows = vs==='A' ? [...Array(ROWS).keys()].reverse() : [...Array(ROWS).keys()];
   const cols = vs==='A' ? [...Array(COLS).keys()].reverse() : [...Array(COLS).keys()];
   const legalSet={}; if(legal)legal.forEach(m=>legalSet[key(m[0],m[1])]=m[2]);
-  const gmap={}; const cg=curGems(); GEM_COLORS.forEach(col=>{const pos=cg[col]; if(pos)gmap[key(pos[0],pos[1])]=col;});
+  const gmap={}; const vs2=viewSide(); GEM_COLORS.forEach(col=>{const pos=gemPos(vs2,col); if(pos)gmap[key(pos[0],pos[1])]=col;});
   for(const r of rows)for(const c of cols){
     const cell=document.createElement('div');cell.className='cell';
     cell.dataset.r=r;cell.dataset.c=c;
@@ -1180,14 +1203,18 @@ function gemUp(e){
   const d=gdrag; gdrag=null;
   document.querySelectorAll('.gem-ghost').forEach(x=>x.remove());
   if(!d)return;
-  const g=curGems();
+  const vs=viewSide(); const g=gemsOf[vs];
   if(!d.moved){ if(d.kind==='board'){ g[d.col]=null; renderGame(); } return; } // toque: retira la del tablero
   const el=document.elementFromPoint(e.clientX,e.clientY);
   const cell=el?el.closest('.cell'):null;
   if(cell){
     const r=+cell.dataset.r,c=+cell.dataset.c;
-    const occupied=GEM_COLORS.some(k=>k!==d.col && g[k] && g[k][0]===r && g[k][1]===c);
-    if(!isReef(r,c) && !occupied){ g[d.col]=[r,c]; }
+    if(!isReef(r,c)){
+      const p=board[r][c];
+      const dupPiece = p && GEM_COLORS.some(k=>k!==d.col && g[k] && g[k].pid===p.id);
+      const dupCell  = !p && GEM_COLORS.some(k=>k!==d.col && g[k] && g[k].cell && g[k].cell[0]===r && g[k].cell[1]===c);
+      if(!dupPiece && !dupCell){ g[d.col] = p ? {pid:p.id} : {cell:[r,c]}; }   // pieza -> la sigue; vacía -> marca el sitio
+    }
   } else if(el && el.closest && el.closest('#gem-tray')){ g[d.col]=null; } // soltada en la bandeja: retirar
   renderGame();
 }
@@ -1195,9 +1222,9 @@ function clearHover(){ $('board').querySelectorAll('.cell.hover').forEach(c=>c.c
 function clearGhosts(){ document.querySelectorAll('.ghost').forEach(g=>g.remove()); }
 function onDown(e){
   if(phase!=='play')return;
-  if(mode==='online' && (turn!==mySide() || net._awaiting))return;   // no es mi turno o espero confirmación
   const gemEl=e.target.closest('.gem-mark');
-  if(gemEl){ gemStart(e, gemEl.dataset.gem, 'board'); return; }
+  if(gemEl){ gemStart(e, gemEl.dataset.gem, 'board'); return; }   // gemas: anotación personal, siempre disponible
+  if(mode==='online' && (turn!==mySide() || net._awaiting))return;   // mover piezas: solo en mi turno
   const cell=e.target.closest('.cell'); if(!cell)return;
   const r=+cell.dataset.r,c=+cell.dataset.c;
   if(selected && legal && legal.some(m=>m[0]===r&&m[1]===c)){
