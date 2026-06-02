@@ -20,6 +20,7 @@
   --water:rgba(150,170,185,0.06); --water-line:rgba(244,244,242,0.13);
   --reef:rgba(120,135,150,0.14); --grain-opacity:0.40; --vignette:rgba(0,0,0,0.5);
   --enemy:#1d1d22; --own:#23232a; --legal:rgba(120,170,200,0.22);
+  --target:#ff6a52; --target-glow:rgba(255,90,66,0.55);
 }
 body.light{
   --bg:#f3f2ee; --panel:#e7e6df; --panel-2:#eeede7; --line:#d2d0c6;
@@ -27,6 +28,7 @@ body.light{
   --water:rgba(120,150,170,0.10); --water-line:rgba(23,23,26,0.12);
   --reef:rgba(80,95,110,0.16); --grain-opacity:0.16; --vignette:rgba(60,58,50,0.10);
   --enemy:#e3e1d8; --own:#f0efe8; --legal:rgba(90,140,175,0.22);
+  --target:#d8443a; --target-glow:rgba(210,55,45,0.45);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;overflow:hidden;}
@@ -138,7 +140,11 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
 .cell.reef{background:var(--reef);background-image:repeating-linear-gradient(45deg,transparent,transparent 4px,var(--water-line) 4px,var(--water-line) 5px);cursor:not-allowed;}
 .cell.sel{box-shadow:0 0 0 2px var(--accent) inset;}
 .cell.legal::before{content:'';position:absolute;width:30%;height:30%;border-radius:50%;background:var(--legal);}
-.cell.legal.cap::before{width:74%;height:74%;border-radius:0;background:transparent;box-shadow:0 0 0 2px var(--accent) inset;}
+.cell.legal.cap::before{width:100%;height:100%;border-radius:0;background:transparent;
+  box-shadow:inset 0 0 0 3px var(--target),inset 0 0 13px 3px var(--target-glow);
+  animation:cellTarget 1.05s ease-in-out infinite;}
+@keyframes cellTarget{0%,100%{opacity:.5;}50%{opacity:1;}}
+@media(prefers-reduced-motion:reduce){.cell.legal.cap::before{animation:none;opacity:.9;}}
 .cell.placeable{background:color-mix(in srgb,var(--accent) 7%,var(--water));}
 .piece{width:86%;height:86%;border-radius:5px;display:flex;flex-direction:column;align-items:center;
   justify-content:center;line-height:1;border:2px solid var(--line);position:relative;color:var(--text);
@@ -299,7 +305,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
     <button class="btn" id="btn-mode-normal">Modo normal</button>
     <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v30</p>
+  <p class="note" id="ver-tag">v31</p>
 </div>
 
 <!-- ELEGIR: vs IA / ONLINE -->
@@ -973,7 +979,7 @@ function runOnlineCombat(cb){
     }).catch(()=>{ selected=null; legal=null; renderGame(); });
   };
   // red de seguridad: si la animación no cierra en 5s, cierro igual
-  const safety=setTimeout(finish, 5500);
+  const safety=setTimeout(finish, 7200);
   // animo primero el DESPLAZAMIENTO del atacante hasta la víctima, luego el combate
   const lanzarCombate=()=>{ playCombat(att,def,cb.res,()=>{ clearTimeout(safety); finish(); }); };
   const from=cellCenter(cb.fr,cb.fc), to=cellCenter(cb.tr,cb.tc);
@@ -985,7 +991,7 @@ function runOnlineCombat(cb){
     fly.style.left=rt.left+'px';fly.style.top=rt.top+'px';
     fly.style.transition='none';
     document.body.appendChild(fly);
-    const ATKDUR=520;
+    const ATKDUR=860;
     requestAnimationFrame(()=>{
       void fly.offsetWidth;
       requestAnimationFrame(()=>{
@@ -993,7 +999,7 @@ function runOnlineCombat(cb){
         fly.style.left=(to.x-rt.width/2)+'px'; fly.style.top=(to.y-rt.height/2)+'px';
       });
     });
-    setTimeout(()=>{ try{fly.remove();}catch(e){} lanzarCombate(); }, ATKDUR+120);
+    setTimeout(()=>{ try{fly.remove();}catch(e){} lanzarCombate(); }, ATKDUR+250);
   } else {
     lanzarCombate();
   }
@@ -1336,7 +1342,7 @@ function playCombat(att,def,res,cb){
   $('cb-def-name').textContent=pieceName(def.type);
   const v=$('cb-verdict'); v.textContent=''; v.classList.remove('show');
   ov.className='visible enter';
-  setTimeout(()=>ov.classList.add('clash'), 1150);
+  setTimeout(()=>ov.classList.add('clash'), 1450);
   setTimeout(()=>{
     let txt;
     if(def.type==='tesoro'){ txt='¡Tesoro capturado!'; at.classList.add('win'); }
@@ -1344,8 +1350,8 @@ function playCombat(att,def,res,cb){
     else if(res==='def'){ txt='Vence '+pieceName(def.type); dt.classList.add('win'); at.classList.add('lose'); }
     else { txt='Ambos caen'; at.classList.add('lose'); dt.classList.add('lose'); }
     v.textContent=txt; v.classList.add('show');
-  }, 1850);
-  setTimeout(()=>{ ov.className=''; cb(); }, 3600);
+  }, 2150);
+  setTimeout(()=>{ ov.className=''; cb(); }, 3900);
 }
 
 function endTurn(){
