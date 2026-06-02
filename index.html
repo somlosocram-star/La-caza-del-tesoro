@@ -20,7 +20,6 @@
   --water:rgba(150,170,185,0.06); --water-line:rgba(244,244,242,0.13);
   --reef:rgba(120,135,150,0.14); --grain-opacity:0.40; --vignette:rgba(0,0,0,0.5);
   --enemy:#1d1d22; --own:#23232a; --legal:rgba(120,170,200,0.22);
-  --target:#ff6a52; --target-glow:rgba(255,90,66,0.55);
 }
 body.light{
   --bg:#f3f2ee; --panel:#e7e6df; --panel-2:#eeede7; --line:#d2d0c6;
@@ -28,7 +27,6 @@ body.light{
   --water:rgba(120,150,170,0.10); --water-line:rgba(23,23,26,0.12);
   --reef:rgba(80,95,110,0.16); --grain-opacity:0.16; --vignette:rgba(60,58,50,0.10);
   --enemy:#e3e1d8; --own:#f0efe8; --legal:rgba(90,140,175,0.22);
-  --target:#d8443a; --target-glow:rgba(210,55,45,0.45);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;overflow:hidden;}
@@ -140,14 +138,23 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
 .cell.reef{background:var(--reef);background-image:repeating-linear-gradient(45deg,transparent,transparent 4px,var(--water-line) 4px,var(--water-line) 5px);cursor:not-allowed;}
 .cell.sel{box-shadow:0 0 0 2px var(--accent) inset;}
 .cell.legal::before{content:'';position:absolute;width:30%;height:30%;border-radius:50%;background:var(--legal);}
-.cell.legal.cap::before{width:100%;height:100%;border-radius:0;background:transparent;
-  box-shadow:inset 0 0 0 3px var(--target),inset 0 0 13px 3px var(--target-glow);
-  animation:cellTarget 1.05s ease-in-out infinite;}
-@keyframes cellTarget{0%,100%{opacity:.5;}50%{opacity:1;}}
-@media(prefers-reduced-motion:reduce){.cell.legal.cap::before{animation:none;opacity:.9;}}
+.cell.legal.cap::before{content:'';position:absolute;inset:0;border-radius:0;pointer-events:none;z-index:1;
+  background:
+    radial-gradient(circle at 50% 62%, rgba(255,238,150,.95) 0%, rgba(255,238,150,0) 34%),
+    radial-gradient(circle at 50% 60%, rgba(255,150,40,.85) 0%, rgba(255,150,40,0) 52%),
+    radial-gradient(circle at 50% 58%, rgba(225,55,25,.7) 0%, rgba(225,55,25,0) 72%);
+  mix-blend-mode:screen;
+  animation:fireBody .42s ease-in-out infinite alternate;}
+.cell.legal.cap::after{content:'';position:absolute;inset:0;border-radius:0;pointer-events:none;z-index:1;
+  box-shadow:inset 0 0 6px 1px rgba(255,90,30,.9),inset 0 0 16px 4px rgba(220,40,20,.55),inset 0 0 26px 8px rgba(255,180,40,.3);
+  animation:fireEdge .53s ease-in-out infinite alternate;}
+@keyframes fireBody{0%{opacity:.72;transform:scale(.97) translateY(1px);}55%{opacity:1;}100%{opacity:.85;transform:scale(1.04) translateY(-1px);}}
+@keyframes fireEdge{0%{opacity:.6;}50%{opacity:1;}100%{opacity:.7;}}
+body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
+@media(prefers-reduced-motion:reduce){.cell.legal.cap::before,.cell.legal.cap::after{animation:none;opacity:.9;}}
 .cell.placeable{background:color-mix(in srgb,var(--accent) 7%,var(--water));}
 .piece{width:86%;height:86%;border-radius:5px;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;line-height:1;border:2px solid var(--line);position:relative;color:var(--text);
+  justify-content:center;line-height:1;border:2px solid var(--line);position:relative;z-index:2;color:var(--text);
   box-shadow:0 1px 3px rgba(0,0,0,.35);}
 /* identidad por jugador (tonos fijos, distintos del tablero, con borde de contraste) */
 .piece.pA{background:#1e1e25;color:#f7f7f4;border-color:#f7f7f4;}
@@ -305,7 +312,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
     <button class="btn" id="btn-mode-normal">Modo normal</button>
     <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v31</p>
+  <p class="note" id="ver-tag">v33</p>
 </div>
 
 <!-- ELEGIR: vs IA / ONLINE -->
@@ -1259,7 +1266,7 @@ function attemptMove(fr,fc,tr,tc,ghost){
   clearHover();
   if(mode==='ai' && att.owner===HUMAN){               // la IA observa el movimiento del humano
     aiMoved[att.id]=true;
-    if(Math.abs(tr-fr)+Math.abs(tc-fc)>1) aiKnown[att.id]='navegante'; // sólo el navegante se desliza
+    if(gameMode!=='chess' && Math.abs(tr-fr)+Math.abs(tc-fc)>1) aiKnown[att.id]='navegante'; // normal: sólo el navegante se desliza
   }
   const t=cellCenter(tr,tc), w=t?t.w:40;
   if(fly && t) requestAnimationFrame(()=>{
@@ -1398,7 +1405,7 @@ function aiSetup(level){
   if(level===1){                                  // fácil: casi aleatorio, tesoro detrás + 2 krakens
     let tc=2+Math.floor(Math.random()*(COLS-4));
     put(back,tc,'tesoro'); put(back,tc-1,'kraken'); put(back,tc+1,'kraken');
-    const bag=[]; ORDER.forEach(t=>{let n=TYPES[t].count; if(t==='tesoro')n=0; if(t==='kraken')n-=2; for(let i=0;i<n;i++)bag.push(t);});
+    const bag=[]; ORDER.forEach(t=>{let n=pieceCount(t); if(t==='tesoro')n=0; if(t==='kraken')n-=2; for(let i=0;i<n;i++)bag.push(t);});
     for(let i=bag.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[bag[i],bag[j]]=[bag[j],bag[i]];}
     free().forEach((cell,i)=>{ if(bag[i])board[cell[0]][cell[1]]=mkPiece(AI,bag[i]); });
   } else {                                        // medio/difícil: tesoro arrinconado, krakens alrededor, arponeros y altos atrás
@@ -1410,7 +1417,7 @@ function aiSetup(level){
     ['artillero','artillero','arponero','arponero'].forEach(t=>{const f=free(); if(f.length){const idx=Math.floor(Math.random()*Math.min(4,f.length)); put(f[idx][0],f[idx][1],t);} });
     const bag=[]; ['navegante','navegante','navegante','navegante','arponero','arponero','grumete','grumete','grumete','grumete','grumete','grumete','polizon'].forEach(t=>bag.push(t));
     // rellena lo que falte según conteos restantes
-    const left={}; ORDER.forEach(t=>left[t]=TYPES[t].count); for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){const p=board[r][c];if(p&&p.owner===AI)left[p.type]--;}
+    const left={}; ORDER.forEach(t=>left[t]=pieceCount(t)); for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){const p=board[r][c];if(p&&p.owner===AI)left[p.type]--;}
     const fill=[]; ORDER.forEach(t=>{for(let i=0;i<left[t];i++)fill.push(t);});
     for(let i=fill.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[fill[i],fill[j]]=[fill[j],fill[i]];}
     free().forEach((cell,i)=>{ if(fill[i])board[cell[0]][cell[1]]=mkPiece(AI,fill[i]); });
@@ -1431,6 +1438,32 @@ function aiBelief(r,c){
   return { moved:!!aiMoved[p.id], type:kt||null, rank: kt?TYPES[kt].rank:null };
 }
 function distToEnemyHome(r){ return r - Math.min(...HOME[HUMAN]); } // menor = más cerca del tesoro humano
+// ¿el enemigo (tipo et) gana si captura a mi pieza (tipo mt)?  1=enemigo gana, 0=empate(ambos caen), -1=yo gano
+function enemyBeats(et,mt){
+  if(mt==='kraken') return et==='arponero' ? 1 : -1;   // mi kraken: solo lo bate el arponero
+  if(mt==='tesoro') return 1;
+  if(et==='polizon') return mt==='capitan' ? 1 : -1;    // polizón solo gana al capitán
+  const er=TYPES[et].rank, mr=TYPES[mt].rank;
+  if(er>mr) return 1; if(er<mr) return -1; return 0;
+}
+// Amenaza sobre (tr,tc) tras mover mi pieza att de (fr,fc): mira SOLO piezas humanas conocidas.
+// Devuelve: 0 sin amenaza, 1 me capturan con pérdida limpia, .5 empate (ambos caen).
+function aiThreatLevel(fr,fc,tr,tc,att){
+  const sf=board[fr][fc], st=board[tr][tc];
+  board[fr][fc]=null; board[tr][tc]=att;             // tablero hipotético
+  let worst=0;
+  for(let r=0;r<ROWS&&worst<1;r++)for(let c=0;c<COLS;c++){
+    const e=board[r][c];
+    if(!e||e.owner!==HUMAN||TYPES[e.type].immov) continue;
+    const kt=aiKnown[e.id]; if(!kt) continue;          // solo lo que la IA conoce de verdad
+    if(!legalMoves(r,c).some(m=>m[0]===tr&&m[1]===tc)) continue;
+    const v=enemyBeats(kt,att.type);
+    if(v===1){ worst=1; break; }
+    if(v===0) worst=Math.max(worst,.5);
+  }
+  board[fr][fc]=sf; board[tr][tc]=st;                  // restaurar
+  return worst;
+}
 function aiScore(m,level){
   const att=board[m.fr][m.fc], ar=TYPES[att.type].rank;
   let s=0;
@@ -1456,12 +1489,11 @@ function aiScore(m,level){
   }
   // avance hacia el tesoro humano
   s += (distToEnemyHome(m.fr)-distToEnemyHome(m.tr)) * (level>=2?2:1);
-  // no exponerse junto a un enemigo conocido más fuerte (sin leer ocultos)
+  // NO COLGAR: ¿la casilla destino queda bajo ataque de un enemigo conocido? (alcance real, modo-aware)
   if(level>=2 && !TYPES[att.type].immov){
-    for(const[dr,dc]of [[-1,0],[1,0],[0,-1],[0,1]]){
-      const b=aiBelief(m.tr+dr,m.tc+dc);
-      if(b&&b.rank&&b.rank>ar) s -= 8;
-    }
+    const th=aiThreatLevel(m.fr,m.fc,m.tr,m.tc,att);
+    if(th===1)      s -= 14 + ar*6;     // me capturan con pérdida: penaliza más cuanto más vale mi pieza
+    else if(th===.5) s -= 6 + ar*2;     // empate: ambos caen, malo si mi pieza vale
   }
   // farol nivel 3: empujar piezas bajas como si fueran fuertes
   if(level>=3 && !m.cap && ar<=2) s += 1.5;
@@ -1483,7 +1515,7 @@ function aiChoose(level){
     return pool[Math.floor(Math.random()*pool.length)];
   }
   let best=[], bestS=-Infinity;
-  for(const m of moves){ let sc=aiScore(m,level)+Math.random()*(level>=3?1.5:3); // ruido: más en medio
+  for(const m of moves){ let sc=aiScore(m,level)+Math.random()*(level>=3?0.6:2.2); // ruido: casi nulo en difícil
     if(sc>bestS){bestS=sc;best=[m];} else if(sc===bestS)best.push(m); }
   return best[Math.floor(Math.random()*best.length)];
 }
@@ -1501,7 +1533,7 @@ function aiTurn(){
 function reset(){ board=null; turn=null; selected=null; legal=null; aiKnown={}; aiMoved={}; aiLast=null; noCap=0; pidSeq=0; gemsOf={A:emptyGems(),B:emptyGems()}; }
 $('btn-mode-normal').onclick=()=>{ gameMode='normal'; $('pick-sub').textContent='modo normal'; $('pick-msg').textContent=''; show('screen-pick'); };
 $('btn-mode-chess').onclick=()=>{ gameMode='chess'; $('pick-sub').textContent='modo chess'; $('pick-msg').textContent=''; show('screen-pick'); };
-$('btn-pick-ai').onclick=()=>{ if(gameMode==='chess'){ $('pick-msg').textContent='Chess vs IA: próximamente.'; return; } show('screen-diff'); };
+$('btn-pick-ai').onclick=()=>{ if(gameMode==='chess'){ mode='ai'; aiLevel=2; reset(); startSetup('A'); return; } show('screen-diff'); };
 $('btn-pick-online').onclick=()=>{ onlineMsg(''); show('screen-online'); };
 $('btn-pick-back').onclick=()=>{ gameMode='normal'; show('screen-intro'); };
 $('btn-create').onclick=onlineCreate;
