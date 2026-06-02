@@ -312,7 +312,7 @@ body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
     <button class="btn" id="btn-mode-normal">Modo normal</button>
     <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v35</p>
+  <p class="note" id="ver-tag">v36</p>
 </div>
 
 <!-- ELEGIR: vs IA / ONLINE -->
@@ -471,6 +471,21 @@ let gameMode='normal';                       // 'normal' | 'chess'
 const CHESS_COUNT={navegante:3,kraken:5};     // overrides de cantidades en modo Chess
 function pieceCount(t){ return (gameMode==='chess'&&CHESS_COUNT[t]!=null)?CHESS_COUNT[t]:TYPES[t].count; }
 let aiKnown={}, aiMoved={}, aiLast=null, noCap=0;   // memoria de la IA sobre el humano
+let aiDeadHuman={};                                  // bajas humanas reveladas por tipo (información legítima)
+let aiStyle=null;                                    // sesgo de estrategia, distinto cada partida
+function aiPickStyle(){
+  const styles=[
+    {name:'equilibrado', adv:1.0, cap:1.0, caution:1.0},
+    {name:'agresivo',    adv:1.7, cap:1.35, caution:0.7},
+    {name:'cauto',       adv:0.7, cap:0.95, caution:1.45},
+    {name:'saqueador',   adv:1.25,cap:1.0, caution:1.0, arp:1.8},   // insiste con arponeros al tesoro
+    {name:'flanco',      adv:1.15,cap:1.05,caution:1.0, edge:1}      // prefiere avanzar por los bordes
+  ];
+  aiStyle=styles[Math.floor(Math.random()*styles.length)];
+}
+function humanCaptainGone(){ return (aiDeadHuman['capitan']||0) >= 1; }
+function humanSpyGone(){ return (aiDeadHuman['polizon']||0) >= 1; }
+function captainCanRampage(){ return humanCaptainGone() && humanSpyGone(); }  // ya nada móvil bate al capitán
 const GEM_COLORS=['yellow','red','green','blue'];
 function emptyGems(){return {yellow:null,red:null,green:null,blue:null};}
 let gemsOf={A:emptyGems(),B:emptyGems()};
@@ -1281,6 +1296,9 @@ function attemptMove(fr,fc,tr,tc,ghost){
     if(mode==='ai'){ // el combate revela identidades: la IA recuerda la pieza humana implicada
       if(att.owner===HUMAN) aiKnown[att.id]=att.type;
       if(def.owner===HUMAN) aiKnown[def.id]=def.type;
+      // y anota las bajas humanas (su tipo queda al descubierto al morir)
+      if(att.owner===HUMAN && (res==='def'||res==='both')) aiDeadHuman[att.type]=(aiDeadHuman[att.type]||0)+1;
+      if(def.owner===HUMAN && (res==='att'||res==='both') && def.type!=='kraken') aiDeadHuman[def.type]=(aiDeadHuman[def.type]||0)+1;
     }
     playCombat(att,def,res,()=>{
       if(res==='att') board[tr][tc]=att;
@@ -1481,6 +1499,9 @@ function aiThreatLevel(fr,fc,tr,tc,att){
 function aiScore(m,level){
   const att=board[m.fr][m.fc], ar=TYPES[att.type].rank;
   let s=0;
+  const st=aiStyle||{adv:1,cap:1,caution:1};
+  const stAdv=st.adv||1, stArp=st.arp||1;
+  const stCaution=(level>=3)?Math.max(1,st.caution||1):(st.caution||1); // el difícil nunca es imprudente
   if(m.cap){
     const b=aiBelief(m.tr,m.tc);
     if(b && b.type){                 // objetivo conocido
@@ -1493,7 +1514,12 @@ function aiScore(m,level){
     } else {                          // objetivo desconocido: estimación honesta por mi rango
       const moved=b&&b.moved;
       if(att.type==='polizon') s += -40;                           // el espía nunca ataca a ciegas
-      else if(ar>=6) s += moved? 16:10;                            // capitán/oficial casi siempre gana
+      else if(att.type==='capitan'){
+        // el capitán sólo arrasa a ciegas cuando ya no quedan capitán ni polizón enemigos, y nunca contra piezas quietas (posibles krakens)
+        if(captainCanRampage()) s += moved ? 22 : -50;
+        else s += moved ? -10 : -55;                                // aún hay amenazas: no malgastarlo
+      }
+      else if(ar>=6) s += moved? 16:10;                            // oficial casi siempre gana
       else if(ar>=4) s += moved? 6:2;
       else if(ar===3) s += moved? 2:-2;                            // arponero arriesga
       else s += -4;                                                 // grumete: probable pérdida
@@ -1504,10 +1530,39 @@ function aiScore(m,level){
   // CHESS · ARPONEROS CON IDEA: son la llave para abrir la muralla de krakens enemiga.
   if(gameMode==='chess' && att.type==='arponero'){
     s += 6;                                                   // anula la penalización de explorar: aquí queremos que avancen
-    if(level>=2) s += (distToEnemyHome(m.fr)-distToEnemyHome(m.tr)) * 4;  // premia acercarse al tesoro enemigo
+    if(level>=2){
+      const adv=(distToEnemyHome(m.fr)-distToEnemyHome(m.tr));
+      let escorted=true;
+      if(level>=3){                                           // DIFÍCIL: solo avanza con escolta que pueda recapturar
+        escorted=false;
+        for(let r=0;r<ROWS&&!escorted;r++)for(let c=0;c<COLS;c++){ const f=board[r][c];
+          if(f&&f.owner===AI&&!TYPES[f.type].immov&&TYPES[f.type].rank>=4&&cheb(r,c,m.tr,m.tc)<=2) escorted=true; }
+      }
+      if(escorted) s += adv*4*stArp;
+      else s -= 3;                                            // sin escolta en difícil: no se lanza solo
+    }
   }
-  // avance hacia el tesoro humano (el polizón NO: es el espía, se reserva en retaguardia para cazar al capitán)
-  if(att.type!=='polizon') s += (distToEnemyHome(m.fr)-distToEnemyHome(m.tr)) * (level>=2?2:1);
+  // DIFÍCIL: piezas de rango medio/alto escoltan a un arponero adelantado
+  if(level>=3 && ar>=4 && ar<=5 && att.type!=='arponero'){
+    let near=null;
+    for(let r=0;r<ROWS&&!near;r++)for(let c=0;c<COLS;c++){ const f=board[r][c];
+      if(f&&f.owner===AI&&f.type==='arponero'&&distToEnemyHome(r)<distToEnemyHome(Math.max(...HOME[AI]))-1) near=[r,c]; }
+    if(near){ const before=cheb(m.fr,m.fc,near[0],near[1]), after=cheb(m.tr,m.tc,near[0],near[1]);
+      if(after<before && after<=2) s += 6; }
+  }
+  // avance hacia el tesoro humano (el polizón y el capitán se gestionan aparte)
+  if(att.type!=='polizon' && att.type!=='capitan') s += (distToEnemyHome(m.fr)-distToEnemyHome(m.tr)) * (level>=2?2:1) * stAdv;
+  if(st.edge && (m.tc<=1||m.tc>=COLS-2) && distToEnemyHome(m.tr)<distToEnemyHome(m.fr)) s += 1.5;  // estilo flanco
+  // GESTIÓN DEL CAPITÁN: cuidarlo hasta que caigan capitán y polizón enemigos; después, soltarlo a arrasar
+  if(att.type==='capitan' && level>=2){
+    const adv=distToEnemyHome(m.fr)-distToEnemyHome(m.tr);
+    if(captainCanRampage()){
+      s += adv*2.5*stAdv;                                   // vía libre
+    } else {
+      s -= adv*3;                                           // aún hay amenazas: que no avance
+      if(distToEnemyHome(m.tr) < (ROWS-1)*0.45) s -= 8;     // y que no se meta en la mitad enemiga
+    }
+  }
   // POLIZÓN · el espía: solo sale a por el capitán conocido; si no, se queda atrás y nunca ataca a ciegas
   if(att.type==='polizon' && level>=2){
     const knownCap=(()=>{ for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){const e=board[r][c]; if(e&&e.owner===HUMAN&&aiKnown[e.id]==='capitan')return [r,c];} return null; })();
@@ -1523,8 +1578,8 @@ function aiScore(m,level){
   // NO COLGAR: ¿la casilla destino queda bajo ataque de un enemigo conocido? (alcance real, modo-aware)
   if(level>=2 && !TYPES[att.type].immov){
     const th=aiThreatLevel(m.fr,m.fc,m.tr,m.tc,att);
-    if(th===1)      s -= 14 + ar*6;     // me capturan con pérdida: penaliza más cuanto más vale mi pieza
-    else if(th===.5) s -= 6 + ar*2;     // empate: ambos caen, malo si mi pieza vale
+    if(th===1)      s -= (14 + ar*6) * stCaution;   // me capturan con pérdida: penaliza más cuanto más vale mi pieza
+    else if(th===.5) s -= (6 + ar*2) * stCaution;   // empate: ambos caen, malo si mi pieza vale
   }
   // DEFENSA DEL TESORO PROPIO: si capturo una pieza enemiga pegada a mi tesoro, vale mucho (su arponero abriendo brecha)
   if(level>=2 && m.cap){
@@ -1578,10 +1633,10 @@ function aiTurn(){
 /* ============================================================
    wiring
 ============================================================ */
-function reset(){ board=null; turn=null; selected=null; legal=null; aiKnown={}; aiMoved={}; aiLast=null; noCap=0; pidSeq=0; gemsOf={A:emptyGems(),B:emptyGems()}; }
+function reset(){ board=null; turn=null; selected=null; legal=null; aiKnown={}; aiMoved={}; aiLast=null; noCap=0; aiDeadHuman={}; aiPickStyle(); pidSeq=0; gemsOf={A:emptyGems(),B:emptyGems()}; }
 $('btn-mode-normal').onclick=()=>{ gameMode='normal'; $('pick-sub').textContent='modo normal'; $('pick-msg').textContent=''; show('screen-pick'); };
 $('btn-mode-chess').onclick=()=>{ gameMode='chess'; $('pick-sub').textContent='modo chess'; $('pick-msg').textContent=''; show('screen-pick'); };
-$('btn-pick-ai').onclick=()=>{ if(gameMode==='chess'){ mode='ai'; aiLevel=2; reset(); startSetup('A'); return; } show('screen-diff'); };
+$('btn-pick-ai').onclick=()=>{ show('screen-diff'); };
 $('btn-pick-online').onclick=()=>{ onlineMsg(''); show('screen-online'); };
 $('btn-pick-back').onclick=()=>{ gameMode='normal'; show('screen-intro'); };
 $('btn-create').onclick=onlineCreate;
