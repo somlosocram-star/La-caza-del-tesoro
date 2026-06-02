@@ -153,6 +153,19 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
 .gfoot{flex:0 0 auto;width:100%;padding:.3rem 1rem max(.7rem,env(safe-area-inset-bottom));
   display:flex;gap:.6rem;align-items:center;justify-content:center;}
 .tally{font-family:'IBM Plex Mono',monospace;font-size:.58rem;letter-spacing:.1em;color:var(--muted);}
+/* barra inferior del setup/juego: aleatorio · limpiar · listo */
+.gfoot .btn-sm{padding:.7rem 1rem;font-size:.62rem;border-radius:11px;color:var(--text);border-color:transparent;
+  background:linear-gradient(180deg,rgba(255,255,255,.1),rgba(255,255,255,0) 48%),linear-gradient(180deg,var(--panel-2),var(--panel));
+  box-shadow:0 3px 0 rgba(0,0,0,.5),0 6px 13px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.12),inset 0 -2px 4px rgba(0,0,0,.3);}
+.gfoot .btn-sm:hover{color:var(--text);border-color:transparent;}
+.gfoot .btn-sm:active{transform:translateY(3px);
+  box-shadow:0 0 0 transparent,0 2px 5px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.1),inset 0 -2px 4px rgba(0,0,0,.28);}
+.gfoot .btn-sm:disabled{opacity:.4;box-shadow:0 1px 0 rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.05);transform:none;}
+#btn-ready:not(:disabled){color:var(--on-accent);border-color:transparent;font-weight:700;letter-spacing:.24em;
+  background:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,0) 50%),var(--accent);
+  box-shadow:0 3px 0 color-mix(in srgb,var(--accent) 55%,#000),0 7px 16px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.4);}
+#btn-ready:not(:disabled):active{transform:translateY(3px);
+  box-shadow:0 0 0 transparent,0 2px 6px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.3);}
 
 /* setup tray */
 #tray{flex:0 0 auto;width:100%;padding:.6rem 1rem;display:grid;grid-template-columns:repeat(3,74px);
@@ -286,7 +299,7 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
     <button class="btn" id="btn-ai">Un jugador · vs IA</button>
     <button class="btn" id="btn-online">Dos jugadores · online</button>
   </div>
-  <p class="note" id="ver-tag">v28</p>
+  <p class="note" id="ver-tag">v29</p>
 </div>
 
 <!-- DIFICULTAD -->
