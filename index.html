@@ -296,10 +296,22 @@ body.light #theme-toggle .knob::after{content:'☀';color:#f3f2ee;}
   <div class="title">La Caza<span>del Tesoro</span></div>
   <div class="subtitle">estratego pirata</div>
   <div class="menu">
-    <button class="btn" id="btn-ai">Un jugador · vs IA</button>
-    <button class="btn" id="btn-online">Dos jugadores · online</button>
+    <button class="btn" id="btn-mode-normal">Modo normal</button>
+    <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v29</p>
+  <p class="note" id="ver-tag">v30</p>
+</div>
+
+<!-- ELEGIR: vs IA / ONLINE -->
+<div class="screen" id="screen-pick">
+  <div class="seal"><i class="ic ic-anchor"></i></div>
+  <div class="subtitle" id="pick-sub" style="margin-bottom:1.6rem">modo normal</div>
+  <div class="menu">
+    <button class="btn" id="btn-pick-ai">Un jugador · vs IA</button>
+    <button class="btn" id="btn-pick-online">Dos jugadores · online</button>
+  </div>
+  <p class="note" id="pick-msg" style="margin-top:1rem;min-height:1.2em;color:var(--text)"></p>
+  <button class="btn btn-sm" id="btn-pick-back" style="margin-top:.6rem">Volver</button>
 </div>
 
 <!-- DIFICULTAD -->
@@ -442,6 +454,9 @@ const PCOLOR={A:'Negras', B:'Blancas'};
 let board, turn, selected, legal, phase;
 let setupPlayer, setupSel, setupRemain;
 let mode='ai', aiLevel=2; const HUMAN='A', AI='B';
+let gameMode='normal';                       // 'normal' | 'chess'
+const CHESS_COUNT={navegante:3,kraken:5};     // overrides de cantidades en modo Chess
+function pieceCount(t){ return (gameMode==='chess'&&CHESS_COUNT[t]!=null)?CHESS_COUNT[t]:TYPES[t].count; }
 let aiKnown={}, aiMoved={}, aiLast=null, noCap=0;   // memoria de la IA sobre el humano
 const GEM_COLORS=['yellow','red','green','blue'];
 function emptyGems(){return {yellow:null,red:null,green:null,blue:null};}
@@ -502,7 +517,7 @@ function onlineCreate(){
     const code=genCode(); const meta=roomRef(code).child('meta');
     meta.once('value').then(snap=>{
       if(snap.exists()){ onlineCreate(); return; } // colisión: reintenta
-      meta.set({host:fb.uid,guest:null,state:'waiting',createdAt:firebase.database.ServerValue.TIMESTAMP,v:1}).then(()=>{
+      meta.set({host:fb.uid,guest:null,state:'waiting',gameMode:gameMode,createdAt:firebase.database.ServerValue.TIMESTAMP,v:1}).then(()=>{
         net.code=code; net.host=true; net.side='A'; net.ref=roomRef(code);
         net.ref.onDisconnect().remove();   // si me voy antes de que entre nadie, se borra
         watchLobby(); showLobby();
@@ -520,6 +535,7 @@ function onlineJoin(){
       const m=snap.val();
       if(!m){ onlineMsg('No existe ninguna sala con ese código.'); return; }
       if(m.guest && m.guest!==fb.uid){ onlineMsg('Esa sala ya está llena.'); return; }
+      gameMode = (m.gameMode==='chess') ? 'chess' : 'normal';   // hereda el modo del anfitrión
       meta.update({guest:fb.uid,state:'ready'}).then(()=>{
         net.code=code; net.host=false; net.side='B'; net.ref=roomRef(code);
         watchLobby(); showLobby();
@@ -531,6 +547,7 @@ function watchLobby(){
   if(!net.ref)return;
   net.metaCb=net.ref.child('meta').on('value',snap=>{
     const m=snap.val(); if(!m){ return; }
+    if(m.gameMode && !net.host){ gameMode = (m.gameMode==='chess')?'chess':'normal'; }
     // si la partida ya pasó a despliegue, ambos entran
     if(m.state==='setup' && !net.started){ net.started=true; enterOnlineSetup(); return; }
     const both = m.host && m.guest;
@@ -624,7 +641,7 @@ function tileHTML(piece, reveal){
 ============================================================ */
 function startSetup(player){
   setupPlayer=player; setupSel=null;
-  setupRemain={}; ORDER.forEach(t=>setupRemain[t]=TYPES[t].count);
+  setupRemain={}; ORDER.forEach(t=>setupRemain[t]=pieceCount(t));
   if(!board) board=newBoard();
   $('setup-who').textContent = mode==='ai' ? 'Tu flota · Negras' : PNAME[player]+' · '+PCOLOR[player];
   renderTray(); renderSetupBoard(); bindSetup();
@@ -742,7 +759,7 @@ function refreshReady(){
 function randomFill(){
   // clear current then fill all home cells randomly
   for(const r of HOME[setupPlayer])for(let c=0;c<COLS;c++)board[r][c]=null;
-  const bag=[];ORDER.forEach(t=>{for(let i=0;i<TYPES[t].count;i++)bag.push(t);});
+  const bag=[];ORDER.forEach(t=>{for(let i=0;i<pieceCount(t);i++)bag.push(t);});
   const cells=[];for(const r of HOME[setupPlayer])for(let c=0;c<COLS;c++)if(!isReef(r,c))cells.push([r,c]);
   for(let i=bag.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[bag[i],bag[j]]=[bag[j],bag[i]];}
   cells.forEach((cell,i)=>{board[cell[0]][cell[1]]=mkPiece(setupPlayer,bag[i]);});
@@ -751,7 +768,7 @@ function randomFill(){
 }
 function clearSetup(){
   for(const r of HOME[setupPlayer])for(let c=0;c<COLS;c++)board[r][c]=null;
-  ORDER.forEach(t=>setupRemain[t]=TYPES[t].count); setupSel=null;
+  ORDER.forEach(t=>setupRemain[t]=pieceCount(t)); setupSel=null;
   renderTray(); renderSetupBoard(); refreshReady();
 }
 function setupReady(){
@@ -987,7 +1004,43 @@ function declareWinner(winner,reason){
 }
 function startGame(){ turn='A'; selected=null; legal=null; phase='play'; renderGame(); bindBoard(); show('screen-game'); }
 
+const ORTHO=[[-1,0],[1,0],[0,-1],[0,1]];
+const DIAG=[[-1,-1],[-1,1],[1,-1],[1,1]];
+function slideMoves(r,c,owner,dirs,maxd,out){
+  for(const[dr,dc]of dirs){
+    let nr=r+dr,nc=c+dc,d=1;
+    while(d<=maxd && inBoard(nr,nc) && !isReef(nr,nc)){
+      const q=board[nr][nc];
+      if(!q){ out.push([nr,nc,false]); }
+      else { if(q.owner!==owner) out.push([nr,nc,true]); break; }   // no salta piezas
+      nr+=dr; nc+=dc; d++;
+    }
+  }
+}
+// Modo Chess: cada rango con su patrón. Todas (salvo inmóviles) llevan 1 recto de serie.
+function legalMovesChess(r,c){
+  const p=board[r][c]; if(!p||TYPES[p.type].immov)return [];
+  const out=[];
+  switch(p.type){
+    case 'capitan': case 'polizon':                                  // 1-3 todas direcciones
+      slideMoves(r,c,p.owner,ORTHO,3,out); slideMoves(r,c,p.owner,DIAG,3,out); break;
+    case 'oficial':                                                  // 1-3 diagonal + 1 recto
+      slideMoves(r,c,p.owner,DIAG,3,out); slideMoves(r,c,p.owner,ORTHO,1,out); break;
+    case 'artillero':                                                // 1-4 diagonal + 1 recto
+      slideMoves(r,c,p.owner,DIAG,4,out); slideMoves(r,c,p.owner,ORTHO,1,out); break;
+    case 'navegante':                                                // 1-4 recto
+      slideMoves(r,c,p.owner,ORTHO,4,out); break;
+    case 'arponero': case 'grumete':                                 // 1-2 recto
+      slideMoves(r,c,p.owner,ORTHO,2,out); break;
+    default:                                                         // salvaguarda: 1 recto
+      slideMoves(r,c,p.owner,ORTHO,1,out);
+  }
+  return out;
+}
 function legalMoves(r,c){
+  return gameMode==='chess' ? legalMovesChess(r,c) : legalMovesNormal(r,c);
+}
+function legalMovesNormal(r,c){
   const p=board[r][c]; if(!p||TYPES[p.type].immov)return [];
   const out=[]; const dirs=[[-1,0],[1,0],[0,-1],[0,1]];
   if(p.type==='navegante'){
@@ -1440,16 +1493,19 @@ function aiTurn(){
    wiring
 ============================================================ */
 function reset(){ board=null; turn=null; selected=null; legal=null; aiKnown={}; aiMoved={}; aiLast=null; noCap=0; pidSeq=0; gemsOf={A:emptyGems(),B:emptyGems()}; }
-$('btn-ai').onclick=()=>{ show('screen-diff'); };
-$('btn-online').onclick=()=>{ onlineMsg(''); show('screen-online'); };
+$('btn-mode-normal').onclick=()=>{ gameMode='normal'; $('pick-sub').textContent='modo normal'; $('pick-msg').textContent=''; show('screen-pick'); };
+$('btn-mode-chess').onclick=()=>{ gameMode='chess'; $('pick-sub').textContent='modo chess'; $('pick-msg').textContent=''; show('screen-pick'); };
+$('btn-pick-ai').onclick=()=>{ if(gameMode==='chess'){ $('pick-msg').textContent='Chess vs IA: próximamente.'; return; } show('screen-diff'); };
+$('btn-pick-online').onclick=()=>{ onlineMsg(''); show('screen-online'); };
+$('btn-pick-back').onclick=()=>{ gameMode='normal'; show('screen-intro'); };
 $('btn-create').onclick=onlineCreate;
 $('btn-join').onclick=()=>{ if($('join-msg'))$('join-msg').textContent=''; $('join-code').value=''; show('screen-join'); };
 $('btn-join-continue').onclick=onlineJoin;
-$('btn-online-back').onclick=()=>{ show('screen-intro'); };
+$('btn-online-back').onclick=()=>{ show('screen-pick'); };
 $('btn-join-back').onclick=()=>{ show('screen-online'); };
 $('btn-lobby-leave').onclick=()=>{ leaveRoom(); show('screen-online'); };
 $('btn-lobby-start').onclick=()=>{ onlineBeginSetup(); };
-$('btn-diff-back').onclick=()=>{ show('screen-intro'); };
+$('btn-diff-back').onclick=()=>{ show('screen-pick'); };
 document.querySelectorAll('#screen-diff [data-lvl]').forEach(b=>{
   b.onclick=()=>{ mode='ai'; aiLevel=+b.dataset.lvl; reset(); startSetup('A'); };
 });
@@ -1474,7 +1530,7 @@ $('btn-rematch').onclick=()=>{
     reset(); startSetup('A');
   }
 };
-$('btn-menu').onclick=()=>{ reset(); show('screen-intro'); };
+$('btn-menu').onclick=()=>{ reset(); gameMode='normal'; show('screen-intro'); };
 
 $('theme-toggle').onclick=()=>{ document.body.classList.toggle('light'); try{localStorage.setItem('tl_theme',document.body.classList.contains('light')?'light':'dark');}catch(e){} };
 try{ if(localStorage.getItem('tl_theme')==='light')document.body.classList.add('light'); }catch(e){}
