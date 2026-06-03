@@ -312,7 +312,7 @@ body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
     <button class="btn" id="btn-mode-normal">Modo normal</button>
     <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v41</p>
+  <p class="note" id="ver-tag">v42</p>
 </div>
 
 <!-- ELEGIR: vs IA / ONLINE -->
@@ -639,7 +639,7 @@ const MUSIC={ menu:'Tormenta_de_Cuerdas.mp3',
   game:['Puerta_de_Cristal.mp3','Violines_de_Fuego.mp3','Catedral_de_Hielo.mp3'],
   volMenu:0.70, volGame:0.30 };
 let curScreen='screen-intro', audioEl=null, audioMode=null, audioStarted=false, muted=false, lastGameIdx=-1;
-const SFX={ clash:'sfx-clash.mp3', eat:'sfx-capture.mp3' };
+const SFX={ clash:['sfx-clash.mp3','sfx-clash2.mp3','sfx-clash3.mp3'], eat:'sfx-capture.mp3' };
 // efectos cortos, suenan por encima de la música; 'times'>1 los repite (p.ej. el kraken al "comer" suena doble)
 function playSfx(src, times, gap, vol){
   if(muted) return;
@@ -1407,10 +1407,10 @@ function playCombat(att,def,res,cb){
   $('cb-def-name').textContent=pieceName(def.type);
   const v=$('cb-verdict'); v.textContent=''; v.classList.remove('show');
   ov.className='visible enter';
-  setTimeout(()=>{ ov.classList.add('clash');
-    if(def.type==='kraken' && res!=='att') playSfx(SFX.eat, 2, 170, .85);   // el kraken devora: mordisco doble
-    else playSfx(SFX.clash, 1, 0, .8);                                       // choque de espadas
-  }, 1450);
+  const isEat = (def.type==='kraken' && res!=='att');
+  if(isEat){ setTimeout(()=>playSfx(SFX.eat, 2, 170, .85), 1450); }          // kraken devora: en el clash visual
+  else { const cl=SFX.clash; setTimeout(()=>playSfx(cl[Math.floor(Math.random()*cl.length)], 1, 0, .95), 950); } // espadas: medio segundo antes, variando el sonido
+  setTimeout(()=>ov.classList.add('clash'), 1450);                            // sacudida visual
   setTimeout(()=>{
     let txt;
     if(def.type==='tesoro'){ txt='¡Tesoro capturado!'; at.classList.add('win'); }
