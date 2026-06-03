@@ -2,7 +2,7 @@
    Precarga la cáscara (juego jugable offline en local/IA).
    La música y las fuentes se cachean la primera vez que se usan.
    El online (Firebase) siempre va a la red; no se cachea. */
-const VERSION = 'caza-v42';
+const VERSION = 'caza-v44';
 const SHELL = [
   './',
   './index.html',
@@ -13,7 +13,11 @@ const SHELL = [
   './sfx-clash.mp3',
   './sfx-clash2.mp3',
   './sfx-clash3.mp3',
-  './sfx-capture.mp3'
+  './sfx-capture.mp3',
+  './sfx-cannon.mp3',
+  './sfx-capitan.mp3',
+  './sfx-oficial.mp3',
+  './sfx-polizon.mp3'
 ];
 
 self.addEventListener('install', e => {
