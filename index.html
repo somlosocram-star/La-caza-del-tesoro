@@ -312,7 +312,7 @@ body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
     <button class="btn" id="btn-mode-normal">Modo normal</button>
     <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v39</p>
+  <p class="note" id="ver-tag">v41</p>
 </div>
 
 <!-- ELEGIR: vs IA / ONLINE -->
@@ -639,6 +639,13 @@ const MUSIC={ menu:'Tormenta_de_Cuerdas.mp3',
   game:['Puerta_de_Cristal.mp3','Violines_de_Fuego.mp3','Catedral_de_Hielo.mp3'],
   volMenu:0.70, volGame:0.30 };
 let curScreen='screen-intro', audioEl=null, audioMode=null, audioStarted=false, muted=false, lastGameIdx=-1;
+const SFX={ clash:'sfx-clash.mp3', eat:'sfx-capture.mp3' };
+// efectos cortos, suenan por encima de la música; 'times'>1 los repite (p.ej. el kraken al "comer" suena doble)
+function playSfx(src, times, gap, vol){
+  if(muted) return;
+  times=times||1; gap=gap||0; vol=(vol==null)?0.9:vol;
+  for(let i=0;i<times;i++){ setTimeout(()=>{ try{ const a=new Audio(src); a.volume=vol; a.play().catch(()=>{}); }catch(e){} }, i*gap); }
+}
 function ensureAudio(){ if(!audioEl){ audioEl=new Audio(); audioEl.addEventListener('ended',()=>{ if(audioMode==='game')playRandomGame(); else if(audioEl){audioEl.currentTime=0;audioEl.play().catch(()=>{});} }); } }
 function playRandomGame(){ let i; do{ i=Math.floor(Math.random()*MUSIC.game.length); }while(MUSIC.game.length>1&&i===lastGameIdx); lastGameIdx=i;
   audioEl.src=MUSIC.game[i]; audioEl.volume=MUSIC.volGame; if(!muted)audioEl.play().catch(()=>{}); }
@@ -1400,7 +1407,10 @@ function playCombat(att,def,res,cb){
   $('cb-def-name').textContent=pieceName(def.type);
   const v=$('cb-verdict'); v.textContent=''; v.classList.remove('show');
   ov.className='visible enter';
-  setTimeout(()=>ov.classList.add('clash'), 1450);
+  setTimeout(()=>{ ov.classList.add('clash');
+    if(def.type==='kraken' && res!=='att') playSfx(SFX.eat, 2, 170, .85);   // el kraken devora: mordisco doble
+    else playSfx(SFX.clash, 1, 0, .8);                                       // choque de espadas
+  }, 1450);
   setTimeout(()=>{
     let txt;
     if(def.type==='tesoro'){ txt='¡Tesoro capturado!'; at.classList.add('win'); }
@@ -1509,6 +1519,17 @@ function enemyBeats(et,mt){
 }
 // Amenaza sobre (tr,tc) tras mover mi pieza att de (fr,fc): mira SOLO piezas humanas conocidas.
 // Devuelve: 0 sin amenaza, 1 me capturan con pérdida limpia, .5 empate (ambos caen).
+// ¿hay una ficha enemiga DESCONOCIDA (y ya movida, luego no es kraken/tesoro) al acecho cerca del destino?
+function nearUnknownThreat(tr,tc){
+  const rad = gameMode==='chess'?2:1;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const e=board[r][c];
+    if(!e||e.owner!==HUMAN||TYPES[e.type].immov) continue;
+    if(aiKnown[e.id]||!aiMoved[e.id]) continue;       // solo lo que NO conoce pero ha visto moverse
+    if(Math.max(Math.abs(r-tr),Math.abs(c-tc))<=rad) return true;
+  }
+  return false;
+}
 function aiThreatLevel(fr,fc,tr,tc,att){
   const sf=board[fr][fc], st=board[tr][tc];
   board[fr][fc]=null; board[tr][tc]=att;             // tablero hipotético
@@ -1636,6 +1657,7 @@ function aiScore(m,level){
   if(level>=3){                                   // DIFÍCIL: más guerra — busca el combate y presiona, sin arriesgar al capitán
     if(m.cap) s += 7;
     if(att.type!=='polizon' && att.type!=='capitan') s += (distToEnemyHome(m.fr)-distToEnemyHome(m.tr)) * 1.5;
+    if(!TYPES[att.type].immov && !m.cap && nearUnknownThreat(m.tr,m.tc)) s -= 3 + ar*2;  // no metas piezas (sobre todo valiosas) al alcance de fichas que no conoces
   }
   return s;
 }
@@ -1651,7 +1673,7 @@ function aiChoose(level){
     return pool[Math.floor(Math.random()*pool.length)];
   }
   let best=[], bestS=-Infinity;
-  for(const m of moves){ let sc=aiScore(m,level)+Math.random()*(level>=3?0.15:2.2); // ruido: mínimo en difícil para que juegue su mejor opción
+  for(const m of moves){ let sc=aiScore(m,level)+Math.random()*(level>=3?0:2.2); // difícil: sin azar, siempre su mejor opción
     if(sc>bestS){bestS=sc;best=[m];} else if(sc===bestS)best.push(m); }
   return best[Math.floor(Math.random()*best.length)];
 }
