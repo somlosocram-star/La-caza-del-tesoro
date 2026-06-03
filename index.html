@@ -312,7 +312,7 @@ body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
     <button class="btn" id="btn-mode-normal">Modo normal</button>
     <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v38</p>
+  <p class="note" id="ver-tag">v39</p>
 </div>
 
 <!-- ELEGIR: vs IA / ONLINE -->
@@ -1358,6 +1358,12 @@ function attemptMoveAnim(fr,fc,tr,tc,ghost,done,dur){
     fly.style.transition='none';
     document.body.appendChild(fly);
   }
+  // si una gema sigue a esta pieza, que vuele con ella (elimina el lag de seguimiento)
+  try{ const gv=gemsOf[viewSide()]; let gcol=null;
+    for(const col of GEM_COLORS){ if(gv[col]&&gv[col].pid!=null&&att&&gv[col].pid===att.id){ gcol=col; break; } }
+    if(gcol){ const sm=src.querySelector('.gem-mark'); if(sm)sm.style.visibility='hidden';
+      const gm=document.createElement('i'); gm.className='gem-mark gem-'+gcol; gm.innerHTML='<svg><use href="#ic-gem"/></svg>'; fly.appendChild(gm); }
+  }catch(e){}
   const w=t.w;
   // doble RAF: el primero fija la posición inicial, el segundo lanza la transición (arranque limpio)
   requestAnimationFrame(()=>{
@@ -1453,19 +1459,15 @@ function aiSetup(level){
     const bag=[]; ORDER.forEach(t=>{let n=pieceCount(t); if(t==='tesoro')n=0; if(t==='kraken')n-=2; for(let i=0;i<n;i++)bag.push(t);});
     for(let i=bag.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[bag[i],bag[j]]=[bag[j],bag[i]];}
     free().forEach((cell,i)=>{ if(bag[i])board[cell[0]][cell[1]]=mkPiece(AI,bag[i]); });
-  } else {                                        // medio/difícil: tesoro arrinconado, krakens alrededor, arponeros y altos atrás
-    const tc = Math.random()<.5 ? 0 : COLS-1;
+  } else {                                        // medio/difícil: tesoro al fondo en columna VARIABLE, krakens alrededor, guardianes cerca
+    const tc = Math.floor(Math.random()*COLS);    // cualquier columna del fondo, no solo las esquinas
     put(back,tc,'tesoro');
-    put(back, tc===0?1:COLS-2, 'kraken'); put(back-1,tc,'kraken'); put(back-1, tc===0?1:COLS-2,'kraken');
+    [[back-1,tc],[back,tc-1],[back,tc+1]].forEach(([r,c])=>put(r,c,'kraken'));   // krakens pegados (los que quepan)
     put(front, 2+Math.floor(Math.random()*4), 'kraken'); // 1 kraken trampa en vanguardia
-    if(gameMode==='chess'){
-      // GUARDIÁN: artillero (alfil-4 en Chess) en diagonal interior, cubre las casillas de los krakens para recapturar
-      const gc = tc===0?2:COLS-3;
-      if(!put(back-1, gc, 'artillero')) put(back-2, tc===0?1:COLS-2, 'artillero');
-      put(back, tc===0?2:COLS-3, 'capitan'); put(back-2, tc===0?1:COLS-2,'oficial');
-    } else {
-      put(back, tc===0?2:COLS-3, 'capitan'); put(back-1, tc===0?2:COLS-3,'oficial');
-    }
+    // guardianes en diagonales/cercanías libres del tesoro: recapturan a quien abra brecha
+    const guardCells=[[back-1,tc-1],[back-1,tc+1],[back-2,tc],[back-2,tc-1],[back-2,tc+1]];
+    const guards = gameMode==='chess' ? ['artillero','oficial','capitan'] : ['oficial','capitan'];
+    for(const t of guards){ for(const gcell of guardCells){ if(put(gcell[0],gcell[1],t)) break; } }
     // refuerzo de vanguardia, sin exceder las cantidades del modo (en Chess ya hay un artillero de guardián)
     const placed={}; for(const r of HOME[AI])for(let c=0;c<COLS;c++){const p=board[r][c];if(p&&p.owner===AI)placed[p.type]=(placed[p.type]||0)+1;}
     const reinforce=[]; const wantArt=pieceCount('artillero')-(placed['artillero']||0);
@@ -1631,6 +1633,10 @@ function aiScore(m,level){
   if(aiLast && m.tr===aiLast.fr && m.tc===aiLast.fc && m.fr===aiLast.tr && m.fc===aiLast.tc) s -= 15;
   // presión anti-bloqueo: cuanto más tiempo sin combate, más vale atacar y avanzar (el polizón se mantiene al margen)
   if(noCap>10 && att.type!=='polizon'){ if(m.cap) s += (noCap-10)*0.5; s += (distToEnemyHome(m.fr)-distToEnemyHome(m.tr))*(noCap-10)*0.15; }
+  if(level>=3){                                   // DIFÍCIL: más guerra — busca el combate y presiona, sin arriesgar al capitán
+    if(m.cap) s += 7;
+    if(att.type!=='polizon' && att.type!=='capitan') s += (distToEnemyHome(m.fr)-distToEnemyHome(m.tr)) * 1.5;
+  }
   return s;
 }
 function aiChoose(level){
@@ -1645,7 +1651,7 @@ function aiChoose(level){
     return pool[Math.floor(Math.random()*pool.length)];
   }
   let best=[], bestS=-Infinity;
-  for(const m of moves){ let sc=aiScore(m,level)+Math.random()*(level>=3?0.6:2.2); // ruido: casi nulo en difícil
+  for(const m of moves){ let sc=aiScore(m,level)+Math.random()*(level>=3?0.15:2.2); // ruido: mínimo en difícil para que juegue su mejor opción
     if(sc>bestS){bestS=sc;best=[m];} else if(sc===bestS)best.push(m); }
   return best[Math.floor(Math.random()*best.length)];
 }
