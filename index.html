@@ -312,7 +312,7 @@ body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
     <button class="btn" id="btn-mode-normal">Modo normal</button>
     <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v47</p>
+  <p class="note" id="ver-tag">v48</p>
 </div>
 
 <!-- ELEGIR: vs IA / ONLINE -->
@@ -1670,6 +1670,30 @@ function aiScore(m,level){
   }
   return s;
 }
+function pieceValue(t){
+  if(t==='tesoro') return 1000;     // perderlo es perder la partida
+  if(t==='kraken') return 0;        // inmóvil
+  return TYPES[t].rank;             // capitán 7 ... polizón 1
+}
+// MINI-PREVISIÓN: la mejor captura que el rival podría hacer en su turno con las piezas que la IA CONOCE
+function aiWorstReply(){
+  let worst=0;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const e=board[r][c];
+    if(!e||e.owner!==HUMAN||TYPES[e.type].immov) continue;
+    const kt=aiKnown[e.id]; if(!kt) continue;                    // sólo piezas reveladas (información legítima)
+    for(const mv of legalMoves(r,c)){
+      if(!mv[2]) continue;                                        // sólo capturas
+      const tgt=board[mv[0]][mv[1]]; if(!tgt||tgt.owner!==AI) continue;
+      const out=enemyBeats(kt, tgt.type);                         // el rival ataca mi pieza
+      let v=0;
+      if(out===1) v=pieceValue(tgt.type);                         // pierdo mi pieza
+      else if(out===0) v=pieceValue(tgt.type)-pieceValue(kt);     // intercambio: cuento la diferencia
+      if(v>worst) worst=v;
+    }
+  }
+  return worst;
+}
 function aiChoose(level){
   const moves=aiAllMoves(); if(!moves.length) return null;
   if(level===1){                       // fácil: evita pérdidas obvias, por lo demás aleatorio
@@ -1681,9 +1705,21 @@ function aiChoose(level){
     if(wins.length&&Math.random()<.5) return wins[Math.floor(Math.random()*wins.length)];
     return pool[Math.floor(Math.random()*pool.length)];
   }
+  const scored = moves.map(m=>({m, s:aiScore(m,level)}));
+  if(level>=3){
+    // refina las mejores opciones mirando qué te dejarían responder: descarta las que te regalan una captura
+    scored.sort((a,b)=>b.s-a.s);
+    const K=Math.min(12, scored.length);
+    for(let i=0;i<K;i++){
+      const m=scored[i].m, sf=board[m.fr][m.fc], st=board[m.tr][m.tc];
+      board[m.tr][m.tc]=sf; board[m.fr][m.fc]=null;   // simula mi jugada
+      scored[i].s -= 7*aiWorstReply();                  // penaliza la mejor réplica del rival
+      board[m.fr][m.fc]=sf; board[m.tr][m.tc]=st;        // restaura el tablero
+    }
+  }
   let best=[], bestS=-Infinity;
-  for(const m of moves){ let sc=aiScore(m,level)+Math.random()*(level>=3?0:2.2); // difícil: sin azar, siempre su mejor opción
-    if(sc>bestS){bestS=sc;best=[m];} else if(sc===bestS)best.push(m); }
+  for(const e of scored){ let sc=e.s+Math.random()*(level>=3?0:2.2);
+    if(sc>bestS){bestS=sc;best=[e.m];} else if(sc===bestS)best.push(e.m); }
   return best[Math.floor(Math.random()*best.length)];
 }
 function aiTurn(){
