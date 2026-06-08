@@ -265,6 +265,9 @@ body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
 /* gemas: ayuda de memoria del jugador (único color del juego) */
 .board-col{display:flex;flex-direction:column;align-items:center;}
 #gem-tray{display:flex;gap:1rem;justify-content:center;align-items:center;padding:.3rem 0 .1rem;min-height:34px;touch-action:none;width:100%;}
+#loot{display:flex;flex-wrap:wrap;gap:3px;justify-content:center;align-items:center;padding:.15rem .4rem .2rem;width:100%;}
+#loot .lt{width:21px;height:21px;display:flex;align-items:center;justify-content:center;opacity:.62;}
+#loot .lt .ic{width:100%;height:100%;}
 .gem{width:32px;height:32px;flex-shrink:0;cursor:grab;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));}
 .gem svg{width:100%;height:100%;display:block;pointer-events:none;}
 .gem-yellow{color:#ffce3a;} .gem-red{color:#e64a3d;} .gem-green{color:#3fb45f;} .gem-blue{color:#3f93e6;}
@@ -312,7 +315,7 @@ body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
     <button class="btn" id="btn-mode-normal">Modo normal</button>
     <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v48</p>
+  <p class="note" id="ver-tag">v49</p>
 </div>
 
 <!-- ELEGIR: vs IA / ONLINE -->
@@ -390,7 +393,7 @@ body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
 <!-- GAME -->
 <div class="screen" id="screen-game">
   <div class="ghead"><div class="turn-line">Turno · <b id="turn-who">Jugador A</b></div></div>
-  <div class="gwrap"><div class="board-col"><div id="board"></div><div id="gem-tray"></div></div></div>
+  <div class="gwrap"><div class="board-col"><div id="board"></div><div id="gem-tray"></div><div id="loot"></div></div></div>
   <div class="gfoot">
     <span class="tally mono" id="tally"></span>
     <button class="btn-sm" id="btn-resign">Rendirse</button>
@@ -490,6 +493,16 @@ const GEM_COLORS=['yellow','red','green','blue'];
 function emptyGems(){return {yellow:null,red:null,green:null,blue:null};}
 let gemsOf={A:emptyGems(),B:emptyGems()};
 function curGems(){ return gemsOf[viewSide()]; }
+let myLoot=[];   // tipos de piezas del rival que el jugador ha capturado (su identidad se revela al combatir)
+function recordLoot(owner,type,died){
+  if(!died||!type||type==='tesoro')return;
+  const opp=(viewSide()==='A')?'B':'A';
+  if(owner===opp) myLoot.push(type);
+}
+function renderLoot(){
+  const el=$('loot'); if(!el)return; el.innerHTML='';
+  for(const t of myLoot){ const d=document.createElement('span'); d.className='lt'; d.innerHTML='<i class="ic ic-'+t+'"></i>'; el.appendChild(d); }
+}
 function findPieceCell(id){ for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ const p=board[r][c]; if(p&&p.id===id)return [r,c]; } return null; }
 // posición donde dibujar una gema; si seguía a una pieza que ya no existe, la libera (vuelve a la bandeja)
 function gemPos(side,col){
@@ -998,6 +1011,8 @@ function runOnlineCombat(cb){
     if(cb.res==='att') board[cb.tr][cb.tc]={owner:attOwner,type:cb.attType,id:attId};
     else if(cb.res==='both') board[cb.tr][cb.tc]=null;
     else board[cb.tr][cb.tc]={owner:defOwner,type:cb.defType,id:defId};   // def sobrevive
+    recordLoot(attOwner, cb.attType, cb.res==='def'||cb.res==='both');    // piezas del rival que capturo
+    recordLoot(defOwner, cb.defType, cb.res==='att'||cb.res==='both');
   }
 
   // 2) animación visual; pase lo que pase, al final re-sincroniza turno y marcador
@@ -1163,6 +1178,7 @@ function renderGame(){
   else $('turn-who').textContent=PNAME[turn]+' · '+PCOLOR[turn];
   $('tally').textContent='A '+countPieces('A')+'  ·  B '+countPieces('B');
   renderGemTray();
+  renderLoot();
 }
 function renderGemTray(){
   const tray=$('gem-tray'); if(!tray)return; tray.innerHTML='';
@@ -1334,6 +1350,8 @@ function attemptMove(fr,fc,tr,tc,ghost){
       if(att.owner===HUMAN && (res==='def'||res==='both')) aiDeadHuman[att.type]=(aiDeadHuman[att.type]||0)+1;
       if(def.owner===HUMAN && (res==='att'||res==='both') && def.type!=='kraken') aiDeadHuman[def.type]=(aiDeadHuman[def.type]||0)+1;
     }
+    recordLoot(att.owner, att.type, res==='def'||res==='both');   // piezas del rival que el jugador captura
+    recordLoot(def.owner, def.type, res==='att'||res==='both');
     playCombat(att,def,res,()=>{
       if(res==='att') board[tr][tc]=att;
       else if(res==='both') board[tr][tc]=null;
@@ -1572,7 +1590,11 @@ function aiScore(m,level){
       else s += -8 - ar*2;           // empate: ambos caen
     } else {                          // objetivo desconocido: estimación honesta por mi rango
       const moved=b&&b.moved;
-      if(att.type==='polizon') s += -40;                           // el espía nunca ataca a ciegas
+      const maxHidden = (level>=2) ? humanHiddenMaxRank() : 99;     // por descarte, lo más fuerte que puede ser
+      if(moved && level>=2 && att.type!=='polizon' && !TYPES[att.type].immov && ar>maxHidden){
+        s += 16 + maxHidden*6;        // DEDUCCIÓN: por las cuentas, esa pieza no me supera -> captura segura
+      }
+      else if(att.type==='polizon') s += -40;                      // el espía nunca ataca a ciegas
       else if(att.type==='capitan'){
         // el capitán sólo arrasa a ciegas cuando ya no quedan capitán ni polizón enemigos, y nunca contra piezas quietas (posibles krakens)
         if(captainCanRampage()) s += moved ? 22 : -50;
@@ -1640,11 +1662,14 @@ function aiScore(m,level){
     if(th===1)      s -= (14 + ar*6) * stCaution;   // me capturan con pérdida: penaliza más cuanto más vale mi pieza
     else if(th===.5) s -= (6 + ar*2) * stCaution;   // empate: ambos caen, malo si mi pieza vale
   }
-  // DEFENSA DEL TESORO PROPIO: si capturo una pieza enemiga pegada a mi tesoro, vale mucho (su arponero abriendo brecha)
+  // DEFENSA DEL TESORO PROPIO: capturar una pieza enemiga pegada a mi tesoro vale mucho — pero SOLO si gano (o no pierdo) el combate
   if(level>=2 && m.cap){
-    const tz=aiTreasure();
-    if(tz && cheb(m.tr,m.tc,tz[0],tz[1])<=1){ s += 60; }       // atacante adyacente al tesoro: quitarlo es prioritario
-    else if(tz && cheb(m.tr,m.tc,tz[0],tz[1])<=2){ s += 22; }
+    const tz=aiTreasure(); const b=aiBelief(m.tr,m.tc);
+    const noPierdo = !(b && b.type) || enemyBeats(att.type, b.type) >= 0;   // gano, empato o es incierto; atacar y perder no defiende nada
+    if(noPierdo && tz){
+      if(cheb(m.tr,m.tc,tz[0],tz[1])<=1){ s += 60; }
+      else if(cheb(m.tr,m.tc,tz[0],tz[1])<=2){ s += 22; }
+    }
   }
   // y vigila acercarme a defender aunque no capture: mover una pieza fuerte junto al tesoro cuando hay enemigo movido cerca
   if(level>=2 && !m.cap && !TYPES[att.type].immov && ar>=4){
@@ -1694,6 +1719,20 @@ function aiWorstReply(){
   }
   return worst;
 }
+// DEDUCCIÓN LEGÍTIMA POR CONTEO: ¿cuál es el mayor rango que aún puede esconder una pieza enemiga movida?
+// No mira lo que hay bajo la ficha (sería trampa): descuenta del roster las bajas reveladas y las piezas ya identificadas.
+function humanHiddenMaxRank(){
+  const knownAlive={};
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ const p=board[r][c];
+    if(p&&p.owner===HUMAN){ const kt=aiKnown[p.id]; if(kt) knownAlive[kt]=(knownAlive[kt]||0)+1; } }
+  let maxRank=0;
+  for(const t in TYPES){
+    if(TYPES[t].immov) continue;                                   // una pieza que se ha movido no puede ser kraken ni tesoro
+    const hidden = pieceCount(t) - (aiDeadHuman[t]||0) - (knownAlive[t]||0);
+    if(hidden>0) maxRank=Math.max(maxRank, TYPES[t].rank);
+  }
+  return maxRank;
+}
 function aiChoose(level){
   const moves=aiAllMoves(); if(!moves.length) return null;
   if(level===1){                       // fácil: evita pérdidas obvias, por lo demás aleatorio
@@ -1733,7 +1772,7 @@ function aiTurn(){
 /* ============================================================
    wiring
 ============================================================ */
-function reset(){ board=null; turn=null; selected=null; legal=null; aiKnown={}; aiMoved={}; aiLast=null; noCap=0; aiDeadHuman={}; aiPickStyle(); pidSeq=0; gemsOf={A:emptyGems(),B:emptyGems()}; }
+function reset(){ board=null; turn=null; selected=null; legal=null; aiKnown={}; aiMoved={}; aiLast=null; noCap=0; aiDeadHuman={}; aiPickStyle(); pidSeq=0; gemsOf={A:emptyGems(),B:emptyGems()}; myLoot=[]; }
 $('btn-mode-normal').onclick=()=>{ gameMode='normal'; $('pick-sub').textContent='modo normal'; $('pick-msg').textContent=''; show('screen-pick'); };
 $('btn-mode-chess').onclick=()=>{ gameMode='chess'; $('pick-sub').textContent='modo chess'; $('pick-msg').textContent=''; show('screen-pick'); };
 $('btn-pick-ai').onclick=()=>{ show('screen-diff'); };
