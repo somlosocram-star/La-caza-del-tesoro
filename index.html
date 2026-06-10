@@ -315,7 +315,7 @@ body.light .cell.legal.cap::before{mix-blend-mode:multiply;}
     <button class="btn" id="btn-mode-normal">Modo normal</button>
     <button class="btn" id="btn-mode-chess">Modo Chess</button>
   </div>
-  <p class="note" id="ver-tag">v49</p>
+  <p class="note" id="ver-tag">v50</p>
 </div>
 
 <!-- ELEGIR: vs IA / ONLINE -->
@@ -687,8 +687,8 @@ function setMuted(m){ muted=m; document.body.classList.toggle('muted',m);
 function tileHTML(piece, reveal){
   const t=TYPES[piece.type];
   if(!reveal) return '<i class="ic ic-anchor"></i>';
-  if(piece.type==='kraken') return '<i class="ic ic-kraken"></i><span class="lb">Kraken</span>';
-  if(piece.type==='tesoro') return '<i class="ic ic-tesoro"></i><span class="lb">Tesoro</span>';
+  if(piece.type==='kraken') return '<i class="ic ic-kraken"></i><span class="lb">KRK</span>';
+  if(piece.type==='tesoro') return '<i class="ic ic-tesoro"></i><span class="lb">TES</span>';
   return '<i class="ic ic-'+piece.type+'"></i><span class="rk">'+t.rank+'</span>';
 }
 
@@ -853,7 +853,7 @@ function watchBothReady(){
     net.ref.child('meta').once('value').then(s=>{
       const m=s.val()||{};
       if(net._kickoff) return;
-      if(m.host&&m.guest&&r[m.host]&&r[m.guest]){ net._kickoff=true; net.ref.child('meta').update({state:'playing',turn:'A'}); }
+      if(m.host&&m.guest&&r[m.host]&&r[m.guest]){ net._kickoff=true; net.ref.child('meta').update({state:'playing',turn:Math.random()<0.5?'A':'B'}); }
     });
   });
   // ambos esperan a que meta.state pase a 'playing' y cargan el tablero (una sola vez)
@@ -1062,7 +1062,11 @@ function dbg(msg){ /* panel de diagnóstico desactivado */ }
 function declareWinner(winner,reason){
   net.ref.child('meta').update({winner,reason,state:'over'}).catch(()=>{});
 }
-function startGame(){ turn='A'; selected=null; legal=null; phase='play'; renderGame(); bindBoard(); show('screen-game'); }
+function startGame(){
+  turn = Math.random()<0.5 ? 'A' : 'B';   // primer turno al azar
+  selected=null; legal=null; phase='play'; renderGame(); bindBoard(); show('screen-game');
+  if(mode==='ai' && turn===AI) setTimeout(aiTurn, 450);   // si la IA empieza, que mueva
+}
 
 const ORTHO=[[-1,0],[1,0],[0,-1],[0,1]];
 const DIAG=[[-1,-1],[-1,1],[1,-1],[1,1]];
